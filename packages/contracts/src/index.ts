@@ -1,4 +1,5 @@
 import { z } from "zod";
+export * from "./attendance.js";
 
 // DBモデルや秘密値を公開せず、画面とAPIで入力と応答だけを共有する。
 export const setupInputSchema = z.object({

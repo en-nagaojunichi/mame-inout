@@ -7,6 +7,9 @@ import type { Database } from "./db.js";
 import { createAuth } from "./auth.js";
 import { beginSetup, setupCookie } from "./setup.js";
 import { allowAttempt } from "./rate-limit.js";
+import { createAuthorization } from "./authorization.js";
+import { createAttendanceRoutes } from "./attendance-routes.js";
+import { AttendanceError } from "./attendance.js";
 
 const error = (code: string, message: string) => ({ code, message });
 const authPaths = new Map([
@@ -20,6 +23,7 @@ const authPaths = new Map([
 export function createApp(db: Database, config: Config) {
   const app = new Hono();
   const auth = createAuth(db, config);
+  const access = createAuthorization(db, config, auth);
   app.use("*", async (c, next) => {
     c.header("Cache-Control", "no-store");
     c.header("X-Content-Type-Options", "nosniff");
@@ -32,8 +36,11 @@ export function createApp(db: Database, config: Config) {
     await next();
   });
   app.use("*", bodyLimit({ maxSize: 32 * 1024, onError: (c) => c.json(error("INPUT_TOO_LARGE", "入力が長すぎます。"), 413) }));
-  app.onError(() => new Response(JSON.stringify(error("UNAVAILABLE", "処理を完了できませんでした。時間をおいて再度お試しください。")), {
-    status: 503, headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+  app.onError((cause) => new Response(JSON.stringify(cause instanceof AttendanceError
+    ? error(cause.code, cause.message)
+    : error("UNAVAILABLE", "処理を完了できませんでした。時間をおいて再度お試しください。")), {
+    status: cause instanceof AttendanceError ? cause.status : 503,
+    headers: { "Content-Type": "application/json", "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer" },
   }));
   app.get("/api/health", async (c) => { await db.$queryRaw`SELECT 1`; return c.json({ status: "ok" }); });
   app.get("/api/setup/status", async (c) => {
@@ -78,12 +85,11 @@ export function createApp(db: Database, config: Config) {
     return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
   });
   app.get("/api/admin/me", async (c) => {
-    const session = await auth.api.getSession({ headers: c.req.raw.headers });
-    if (!session) return c.json(error("UNAUTHENTICATED", "パスキーでログインしてください。"), 401);
-    if (session.user.role !== "ADMIN") return c.json(error("FORBIDDEN", "管理者の権限が必要です。"), 403);
+    const admin = await access.admin(c);
     await db.$queryRaw`SELECT 1`;
-    return c.json({ user: { id: session.user.id, name: session.user.name, email: session.user.email, emailVerified: session.user.emailVerified }, database: "connected" });
+    return c.json({ user: { id: admin.userId, name: admin.name, email: admin.email, emailVerified: admin.emailVerified }, database: "connected" });
   });
+  app.route("/", createAttendanceRoutes(db, access));
   app.notFound((c) => c.json(error("NOT_FOUND", "この操作は利用できません。"), 404));
   return app;
 }

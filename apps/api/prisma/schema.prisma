@@ -8,17 +8,21 @@ datasource db {
 }
 
 model User {
-  id            String    @id
-  name          String
-  email         String    @unique
-  emailVerified Boolean   @default(false)
-  image         String?
-  role          String    @default("ADMIN")
-  createdAt     DateTime  @default(now()) @db.Timestamptz
-  updatedAt     DateTime  @updatedAt @db.Timestamptz
-  sessions      Session[]
-  accounts      Account[]
-  passkeys      Passkey[]
+  id                  String               @id
+  name                String
+  email               String               @unique
+  emailVerified       Boolean              @default(false)
+  image               String?
+  role                String               @default("ADMIN")
+  createdAt           DateTime             @default(now()) @db.Timestamptz
+  updatedAt           DateTime             @updatedAt @db.Timestamptz
+  sessions            Session[]
+  accounts            Account[]
+  passkeys            Passkey[]
+  approvedDevices     ReceptionDevice[]    @relation("DeviceApprover")
+  createdVisits       AttendanceVisit[]    @relation("VisitCreator")
+  attendanceRevisions AttendanceRevision[] @relation("RevisionActor")
+  auditEvents         AuditEvent[]         @relation("AuditActor")
 }
 
 model Session {
@@ -31,6 +35,7 @@ model Session {
   userAgent String?
   userId    String
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   @@index([userId])
 }
 
@@ -46,9 +51,10 @@ model Account {
   refreshTokenExpiresAt DateTime? @db.Timestamptz
   scope                 String?
   password              String?
-  createdAt             DateTime @default(now()) @db.Timestamptz
-  updatedAt             DateTime @updatedAt @db.Timestamptz
-  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt             DateTime  @default(now()) @db.Timestamptz
+  updatedAt             DateTime  @updatedAt @db.Timestamptz
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   @@index([userId])
 }
 
@@ -74,6 +80,7 @@ model Passkey {
   createdAt    DateTime @default(now()) @db.Timestamptz
   aaguid       String?
   user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   @@index([userId])
 }
 
@@ -81,8 +88,8 @@ model Passkey {
 model SetupState {
   id          Int       @id @default(1)
   codeHash    String?
-  expiresAt   DateTime?  @db.Timestamptz
-  completedAt DateTime?  @db.Timestamptz
+  expiresAt   DateTime? @db.Timestamptz
+  completedAt DateTime? @db.Timestamptz
 }
 
 // パスキー検証前にはUserを作らず、短命な申請だけを保持する。
@@ -99,4 +106,172 @@ model RateBucket {
   key       String   @id
   count     Int
   startedAt DateTime @db.Timestamptz
+}
+
+// 最初の版は1施設に限定し、時刻の保存値と表示用タイムゾーンを分ける。
+model Facility {
+  id               Int               @id @default(1)
+  name             String            @default("施設") @db.VarChar(100)
+  timeZone         String            @default("Asia/Tokyo") @db.VarChar(100)
+  createdAt        DateTime          @default(now()) @db.Timestamptz
+  updatedAt        DateTime          @default(now()) @updatedAt @db.Timestamptz
+  people           Person[]
+  receptionDevices ReceptionDevice[]
+}
+
+model Person {
+  id            String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  facilityId    Int                 @default(1)
+  displayName   String              @db.VarChar(100)
+  phoneticName  String?             @db.VarChar(100)
+  affiliation   String?             @db.VarChar(100)
+  code          String?             @db.VarChar(64)
+  status        String              @default("ACTIVE") @db.VarChar(16)
+  createdAt     DateTime            @default(now()) @db.Timestamptz
+  updatedAt     DateTime            @default(now()) @updatedAt @db.Timestamptz
+  facility      Facility            @relation(fields: [facilityId], references: [id], onDelete: Restrict)
+  qrCredentials QrCredential[]
+  visits        AttendanceVisit[]
+  requests      AttendanceRequest[]
+  auditEvents   AuditEvent[]
+
+  @@unique([facilityId, code])
+  @@index([facilityId, status, displayName])
+}
+
+// 生のQRは持たず、未失効の資格を利用者ごとに1件にする部分一意をSQLで守る。
+model QrCredential {
+  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  personId  String    @db.Uuid
+  tokenHash String    @unique @db.Char(64)
+  issuedAt  DateTime  @default(now()) @db.Timestamptz
+  revokedAt DateTime? @db.Timestamptz
+  person    Person    @relation(fields: [personId], references: [id], onDelete: Cascade)
+
+  @@index([personId])
+}
+
+model ReceptionDevice {
+  id           String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  facilityId   Int                   @default(1)
+  name         String                @db.VarChar(100)
+  status       String                @default("PENDING") @db.VarChar(16)
+  expiresAt    DateTime?             @db.Timestamptz
+  approvedAt   DateTime?             @db.Timestamptz
+  approvedById String?
+  revokedAt    DateTime?             @db.Timestamptz
+  lastUsedAt   DateTime?             @db.Timestamptz
+  createdAt    DateTime              @default(now()) @db.Timestamptz
+  updatedAt    DateTime              @default(now()) @updatedAt @db.Timestamptz
+  facility     Facility              @relation(fields: [facilityId], references: [id], onDelete: Restrict)
+  approvedBy   User?                 @relation("DeviceApprover", fields: [approvedById], references: [id], onDelete: SetNull)
+  credentials  ReceptionCredential[]
+  visits       AttendanceVisit[]     @relation("VisitCreatedByDevice")
+  requests     AttendanceRequest[]
+  auditEvents  AuditEvent[]
+
+  @@index([facilityId, status])
+  @@index([approvedById])
+  @@index([expiresAt])
+}
+
+// 管理者のログイン資格とは別に、端末に発行した資格の失効と期限を毎回照合する。
+model ReceptionCredential {
+  id        String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  deviceId  String          @db.Uuid
+  tokenHash String          @unique @db.Char(64)
+  expiresAt DateTime        @db.Timestamptz
+  revokedAt DateTime?       @db.Timestamptz
+  createdAt DateTime        @default(now()) @db.Timestamptz
+  device    ReceptionDevice @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@index([deviceId])
+  @@index([expiresAt])
+}
+
+// 未取消・未退室の部分一意に加え、通常処理と訂正で同じ利用者行をロックする。
+model AttendanceVisit {
+  id                String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  personId          String               @db.Uuid
+  enteredAt         DateTime             @db.Timestamptz
+  exitedAt          DateTime?            @db.Timestamptz
+  canceledAt        DateTime?            @db.Timestamptz
+  version           Int                  @default(1)
+  source            String               @default("RECEPTION") @db.VarChar(16)
+  createdByDeviceId String?              @db.Uuid
+  createdByUserId   String?
+  createdAt         DateTime             @default(now()) @db.Timestamptz
+  updatedAt         DateTime             @default(now()) @updatedAt @db.Timestamptz
+  person            Person               @relation(fields: [personId], references: [id], onDelete: Restrict)
+  createdByDevice   ReceptionDevice?     @relation("VisitCreatedByDevice", fields: [createdByDeviceId], references: [id], onDelete: SetNull)
+  createdByUser     User?                @relation("VisitCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  revisions         AttendanceRevision[]
+  auditEvents       AuditEvent[]
+
+  @@index([personId, enteredAt(sort: Desc)])
+  @@index([enteredAt(sort: Desc)])
+  @@index([createdByDeviceId])
+  @@index([createdByUserId])
+}
+
+// 発行済みIDだけを受理し、保存期限後に消したIDを新しい操作として再利用しない。
+model AttendanceRequest {
+  id          String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  deviceId    String          @db.Uuid
+  issuedAt    DateTime        @default(now()) @db.Timestamptz
+  acceptUntil DateTime        @db.Timestamptz
+  resultUntil DateTime        @db.Timestamptz
+  payloadHash String?         @db.Char(64)
+  httpStatus  Int?
+  response    Json?
+  personId    String?         @db.Uuid
+  completedAt DateTime?       @db.Timestamptz
+  device      ReceptionDevice @relation(fields: [deviceId], references: [id], onDelete: Restrict)
+  person      Person?         @relation(fields: [personId], references: [id], onDelete: SetNull)
+  auditEvents AuditEvent[]
+
+  @@index([deviceId, issuedAt(sort: Desc)])
+  @@index([resultUntil])
+  @@index([personId])
+}
+
+// 通常APIは追記だけを行い、前後の記録を後から上書き・削除しない。
+model AttendanceRevision {
+  id          String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  visitId     String          @db.Uuid
+  actorUserId String?
+  reason      String          @db.VarChar(500)
+  before      Json
+  after       Json
+  createdAt   DateTime        @default(now()) @db.Timestamptz
+  visit       AttendanceVisit @relation(fields: [visitId], references: [id], onDelete: Restrict)
+  actorUser   User?           @relation("RevisionActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([visitId, createdAt(sort: Desc)])
+  @@index([actorUserId])
+}
+
+model AuditEvent {
+  id          String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  action      String             @db.VarChar(64)
+  actorType   String             @db.VarChar(16)
+  actorUserId String?
+  deviceId    String?            @db.Uuid
+  personId    String?            @db.Uuid
+  visitId     String?            @db.Uuid
+  requestId   String?            @db.Uuid
+  details     Json               @default("{}")
+  createdAt   DateTime           @default(now()) @db.Timestamptz
+  actorUser   User?              @relation("AuditActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+  device      ReceptionDevice?   @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+  person      Person?            @relation(fields: [personId], references: [id], onDelete: SetNull)
+  visit       AttendanceVisit?   @relation(fields: [visitId], references: [id], onDelete: SetNull)
+  request     AttendanceRequest? @relation(fields: [requestId], references: [id], onDelete: SetNull)
+
+  @@index([actorUserId, createdAt(sort: Desc)])
+  @@index([deviceId, createdAt(sort: Desc)])
+  @@index([personId, createdAt(sort: Desc)])
+  @@index([visitId])
+  @@index([requestId])
+  @@index([createdAt])
 }

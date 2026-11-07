@@ -1,8 +1,19 @@
 import { readFile } from "node:fs/promises";
 import { test, expect } from "@playwright/test";
+import { cookieMetadata, cookieName, maskSecretDisplays } from "./secret-displays";
 
-test("初期登録からパスキーログイン・ログアウトまで", async ({ page, context, browser, baseURL }) => {
+test("初期登録からパスキーログイン・ログアウトまで", async ({ page, context, browser, baseURL }, testInfo) => {
+  test.setTimeout(120_000);
+  const issued = await maskSecretDisplays(page);
   const cdp = await context.newCDPSession(page);
+  const registrationIds = new Set<string>();
+  const blockedCookies: { name: string; reasons: string[] }[] = [];
+  await cdp.send("Network.enable");
+  cdp.on("Network.requestWillBeSent", (event) => { if (event.request.url.endsWith("/passkey/verify-registration")) registrationIds.add(event.requestId); });
+  cdp.on("Network.responseReceivedExtraInfo", (event) => {
+    if (!registrationIds.has(event.requestId)) return;
+    for (const cookie of event.blockedCookies) blockedCookies.push({ name: cookieName(cookie.cookieLine), reasons: cookie.blockedReasons });
+  });
   await cdp.send("WebAuthn.enable");
   const { authenticatorId } = await cdp.send("WebAuthn.addVirtualAuthenticator", { options: {
     protocol: "ctap2", transport: "internal", hasResidentKey: true, hasUserVerification: true,
@@ -20,8 +31,27 @@ test("初期登録からパスキーログイン・ログアウトまで", async
   await page.getByLabel("表示名", { exact: true }).fill("動作確認の管理者");
   await page.getByLabel("メールアドレス", { exact: true }).fill("demo@example.test");
   const registrationRequest = page.waitForRequest((request) => request.url().endsWith("/passkey/verify-registration"));
+  const initialCodesResponse = page.waitForResponse((response) => response.url().endsWith("/api/admin/recovery-codes") && response.request().method() === "POST");
   await page.getByRole("button", { name: "パスキーを登録", exact: true }).click();
   const registration = await registrationRequest;
+  const registeredHttp = await registration.response();
+  await registeredHttp?.finished();
+  // Cookie値を添付せず、ブラウザが受理しなかった理由と公開属性だけを診断に残す。
+  await testInfo.attach("registration-cookie-metadata", { contentType: "application/json", body: Buffer.from(JSON.stringify({
+    cookies: (await registeredHttp?.headersArray() ?? []).filter((header) => header.name.toLowerCase() === "set-cookie").map((header) => cookieMetadata(header.value)),
+    blockedCookies,
+    storedCookieNames: (await context.cookies()).map((cookie) => cookie.name),
+  })) });
+  expect(registeredHttp?.status()).toBe(200);
+  expect((await context.cookies()).some((cookie) => cookie.name.endsWith("better-auth.session_token"))).toBe(true);
+  const initialCodesHttp = await initialCodesResponse;
+  const initialCodesBody = await initialCodesHttp.json();
+  // 失敗の診断は固定コードと状態だけにし、復旧コード自体をassertの差分へ出さない。
+  expect({ status: initialCodesHttp.status(), code: initialCodesBody.code ?? "SUCCESS" }).toEqual({ status: 200, code: "SUCCESS" });
+  const initialCodes = issued.recoveries[0];
+  if (!initialCodes || initialCodes.length !== 8) throw new Error("初期登録後の復旧コード発行を確認できませんでした。");
+  await expect(page.getByRole("dialog", { name: "復旧コードを保存" })).toBeVisible();
+  await page.getByRole("button", { name: "保存したので閉じる", exact: true }).click();
   await expect(page.getByRole("heading", { name: "接続を確認できました" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "接続を確認できました" })).toBeFocused();
   expect((await context.request.get("/api/admin/me")).status()).toBe(200);
@@ -89,4 +119,126 @@ test("初期登録からパスキーログイン・ログアウトまで", async
     await page.unroute("**/passkey/verify-authentication");
   }
   await page.screenshot({ path: "test-results/error-mobile.png", fullPage: true });
+
+  // 署名の改ざんで失敗したチャレンジも消費し、元の正しい応答を再送して使い直せない。
+  await cdp.send("WebAuthn.setResponseOverrideBits", { authenticatorId, isBadUV: false, isBogusSignature: false });
+  let originalPayload: unknown;
+  let originalCookie = "";
+  await page.route("**/passkey/verify-authentication", async (route) => {
+    const body = route.request().postDataJSON();
+    originalPayload = structuredClone(body);
+    originalCookie = (await route.request().allHeaders())["cookie"] ?? "";
+    const signature = Buffer.from(body.response.response.signature, "base64url");
+    signature[signature.length - 1] = signature[signature.length - 1]! ^ 1;
+    body.response.response.signature = signature.toString("base64url");
+    await route.continue({ postData: JSON.stringify(body) });
+  });
+  const failedSignature = page.waitForResponse((response) => response.url().endsWith("/passkey/verify-authentication"));
+  await page.getByRole("button", { name: "パスキーでログイン", exact: true }).click();
+  expect([400, 401]).toContain((await failedSignature).status());
+  await page.unroute("**/passkey/verify-authentication");
+  expect(Boolean(originalPayload)).toBe(true);
+  expect(originalCookie.includes("better-auth-passkey=")).toBe(true);
+  expect((await context.request.post("/api/auth/passkey/verify-authentication", { headers: { Origin: baseURL!, Cookie: originalCookie }, data: originalPayload })).status()).toBe(400);
+
+  await page.getByRole("button", { name: "パスキーでログイン", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "接続を確認できました" })).toBeVisible();
+  await page.getByRole("link", { name: "管理者の設定", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "管理者の設定", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "パスキーを追加", exact: true }).click();
+  const addModal = page.getByRole("dialog", { name: "パスキーを追加", exact: true });
+  await addModal.getByLabel("パスキーの名前", { exact: true }).fill("予備のパスキー");
+  // ログイン直後の認証を使い、空の認証器へ切り替えて別端末への追加を再現する。
+  await cdp.send("WebAuthn.removeVirtualAuthenticator", { authenticatorId });
+  await cdp.send("WebAuthn.addVirtualAuthenticator", { options: {
+    protocol: "ctap2", transport: "internal", hasResidentKey: true, hasUserVerification: true,
+    isUserVerified: true, automaticPresenceSimulation: true,
+  } });
+  await addModal.getByRole("button", { name: "追加", exact: true }).click();
+  await expect(addModal).not.toBeVisible();
+  await expect(page.getByRole("heading", { name: "予備のパスキー", exact: true })).toBeVisible();
+  expect((await (await context.request.get("/api/admin/security")).json()).passkeys.length).toBe(2);
+  await page.getByRole("button", { name: /名前を変更.*予備のパスキー/ }).click();
+  const renameModal = page.getByRole("dialog", { name: "パスキーの名前を変更", exact: true });
+  await renameModal.getByLabel("パスキーの名前", { exact: true }).fill("持ち歩き用の予備");
+  await renameModal.getByRole("button", { name: "保存", exact: true }).click();
+  await expect(renameModal).not.toBeVisible();
+  await expect(page.getByRole("heading", { name: "持ち歩き用の予備", exact: true })).toBeVisible();
+
+  await page.getByRole("button", { name: "管理者を招待", exact: true }).click();
+  const inviteModal = page.getByRole("dialog", { name: "管理者を招待", exact: true });
+  await inviteModal.getByLabel("招待する方の表示名", { exact: true }).fill("招待された管理者");
+  await inviteModal.getByLabel("招待する方のメールアドレス", { exact: true }).fill("invited@example.test");
+  const invitationResponse = page.waitForResponse((response) => response.url().endsWith("/api/admin/invitations"));
+  await inviteModal.getByRole("button", { name: "招待", exact: true }).click();
+  expect((await invitationResponse).status()).toBe(201);
+  const invitation = issued.invitations[0];
+  if (!invitation) throw new Error("管理者の招待コード発行を確認できませんでした。");
+  await expect(page.getByRole("dialog", { name: "招待コードを控える", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "保存したので閉じる", exact: true }).click();
+  const invitedContext = await browser.newContext({ baseURL });
+  const invitedPage = await invitedContext.newPage();
+  await maskSecretDisplays(invitedPage);
+  const invitedCdp = await invitedContext.newCDPSession(invitedPage);
+  await invitedCdp.send("WebAuthn.enable");
+  await invitedCdp.send("WebAuthn.addVirtualAuthenticator", { options: { protocol: "ctap2", transport: "internal", hasResidentKey: true, hasUserVerification: true, isUserVerified: true, automaticPresenceSimulation: true } });
+  await invitedPage.goto("/invite");
+  await invitedPage.getByLabel("招待コード", { exact: true }).fill(invitation.code);
+  await invitedPage.getByRole("button", { name: "新しいパスキーを登録", exact: true }).click();
+  await expect(invitedPage.getByRole("dialog", { name: "復旧コードを保存", exact: true })).toBeVisible();
+  await invitedPage.getByRole("button", { name: "保存したので閉じる", exact: true }).click();
+  await expect(invitedPage.getByRole("heading", { name: "管理者の設定", exact: true })).toBeVisible();
+  expect((await invitedContext.request.get("/api/admin/me")).status()).toBe(200);
+  expect((await (await invitedContext.request.get("/api/admin/security")).json()).admins.length).toBe(2);
+  const usedInvitation = await browser.newContext({ baseURL });
+  expect((await usedInvitation.request.post("/api/invitations/begin", { headers: { Origin: baseURL! }, data: { code: invitation.code } })).status()).toBe(403);
+  await usedInvitation.close(); await invitedContext.close();
+
+  const beforeRecovery = await context.cookies();
+  const recoveryContext = await browser.newContext({ baseURL });
+  const recoveryPage = await recoveryContext.newPage();
+  await maskSecretDisplays(recoveryPage);
+  const recoveryCdp = await recoveryContext.newCDPSession(recoveryPage);
+  await recoveryCdp.send("WebAuthn.enable");
+  await recoveryCdp.send("WebAuthn.addVirtualAuthenticator", { options: { protocol: "ctap2", transport: "internal", hasResidentKey: true, hasUserVerification: true, isUserVerified: true, automaticPresenceSimulation: true } });
+  await recoveryPage.goto("/recover");
+  let recoveryBegins = 0;
+  recoveryPage.on("request", (request) => { if (request.url().endsWith("/api/recovery/begin")) recoveryBegins++; });
+  await recoveryPage.evaluate(() => {
+    const original = navigator.credentials.create.bind(navigator.credentials);
+    let canceled = false;
+    navigator.credentials.create = async (options?: CredentialCreationOptions) => {
+      if (!canceled) { canceled = true; throw new DOMException("認証をキャンセルしました。", "NotAllowedError"); }
+      return original(options);
+    };
+  });
+  await recoveryPage.getByLabel("管理者のメールアドレス", { exact: true }).fill("demo@example.test");
+  await recoveryPage.getByLabel("復旧コード", { exact: true }).fill(initialCodes[0]!);
+  await recoveryPage.getByRole("button", { name: "新しいパスキーを登録", exact: true }).click();
+  await expect(recoveryPage.locator('.auth-panel [role="alert"]')).toHaveText("パスキーの登録は完了していません。端末の案内を確認して、もう一度お試しください。");
+  expect((await recoveryContext.request.get("/api/admin/me")).status()).toBe(401);
+  await recoveryPage.getByRole("button", { name: "新しいパスキーを登録", exact: true }).click();
+  await expect(recoveryPage.getByRole("dialog", { name: "復旧コードを保存", exact: true })).toBeVisible();
+  expect(recoveryBegins).toBe(1);
+  await recoveryPage.getByRole("button", { name: "保存したので閉じる", exact: true }).click();
+  await expect(recoveryPage.getByRole("heading", { name: "管理者の設定", exact: true })).toBeVisible();
+  expect((await recoveryContext.request.get("/api/admin/me")).status()).toBe(200);
+  const recoveredSecurity = await (await recoveryContext.request.get("/api/admin/security")).json();
+  expect(recoveredSecurity.passkeys.length).toBe(1);
+  expect(recoveredSecurity.recoveryConfigured).toBe(true);
+  const oldSession = await browser.newContext({ baseURL });
+  await oldSession.addCookies(beforeRecovery);
+  expect((await oldSession.request.get("/api/admin/me")).status()).toBe(401);
+  await oldSession.close();
+  const oldRecovery = await browser.newContext({ baseURL });
+  expect((await oldRecovery.request.post("/api/recovery/begin", { headers: { Origin: baseURL! }, data: { email: "demo@example.test", code: initialCodes[1]! } })).status()).toBe(403);
+  await oldRecovery.close();
+  // 復旧前の端末に残るパスキーも、サーバー側で失効済みとして拒否する。
+  await context.clearCookies();
+  await page.goto("/");
+  const oldPasskeyResponse = page.waitForResponse((response) => response.url().endsWith("/passkey/verify-authentication"));
+  await page.getByRole("button", { name: "パスキーでログイン", exact: true }).click();
+  expect([400, 401]).toContain((await oldPasskeyResponse).status());
+  expect((await context.request.get("/api/admin/me")).status()).toBe(401);
+  await recoveryContext.close();
 });

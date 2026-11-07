@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
-import { setCookie } from "hono/cookie";
+import { setCookie, generateCookie } from "hono/cookie";
 import { setupInputSchema } from "@mame/contracts";
 import type { Config } from "./config.js";
 import type { Database } from "./db.js";
@@ -10,6 +10,9 @@ import { allowAttempt } from "./rate-limit.js";
 import { createAuthorization } from "./authorization.js";
 import { createAttendanceRoutes } from "./attendance-routes.js";
 import { AttendanceError } from "./attendance.js";
+import { createIdentityRoutes } from "./identity-routes.js";
+import { createDeviceRoutes } from "./device-routes.js";
+import { registrationCookieName } from "./identity.js";
 
 const error = (code: string, message: string) => ({ code, message });
 const authPaths = new Map([
@@ -36,12 +39,12 @@ export function createApp(db: Database, config: Config) {
     await next();
   });
   app.use("*", bodyLimit({ maxSize: 32 * 1024, onError: (c) => c.json(error("INPUT_TOO_LARGE", "入力が長すぎます。"), 413) }));
-  app.onError((cause) => new Response(JSON.stringify(cause instanceof AttendanceError
-    ? error(cause.code, cause.message)
-    : error("UNAVAILABLE", "処理を完了できませんでした。時間をおいて再度お試しください。")), {
-    status: cause instanceof AttendanceError ? cause.status : 503,
-    headers: { "Content-Type": "application/json", "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer" },
-  }));
+  app.onError((cause, c) => {
+    // 準備済みのRetry-Afterも保ち、例外やDB接続情報は利用者へ返さない。
+    c.header("Cache-Control", "no-store"); c.header("X-Content-Type-Options", "nosniff"); c.header("Referrer-Policy", "no-referrer");
+    return cause instanceof AttendanceError ? c.json(error(cause.code, cause.message), cause.status)
+      : c.json(error("UNAVAILABLE", "処理を完了できませんでした。時間をおいて再度お試しください。"), 503);
+  });
   app.get("/api/health", async (c) => { await db.$queryRaw`SELECT 1`; return c.json({ status: "ok" }); });
   app.get("/api/setup/status", async (c) => {
     const state = await db.setupState.findUnique({ where: { id: 1 } });
@@ -68,7 +71,11 @@ export function createApp(db: Database, config: Config) {
       const input = await c.req.raw.clone().json().catch(() => null);
       if (input?.createSession !== true) return c.json(error("INVALID_INPUT", "初期設定画面から登録してください。"), 422);
     }
-    const response = await auth.handler(c.req.raw);
+    if (c.req.path.endsWith("generate-register-options")) {
+      try { await auth.validateRegistrationSource(c.req.raw.headers); }
+      catch { return c.json(error("REGISTRATION_DENIED", "登録の許可が無効か、有効期限が切れています。設定画面からやり直してください。"), 403); }
+    }
+    const response = await auth.handleAtomic(c.req.raw);
     if (!response.ok) {
       return c.json(error("AUTH_FAILED", "認証できませんでした。もう一度お試しください。"), response.status === 401 ? 401 : 400);
     }
@@ -77,6 +84,13 @@ export function createApp(db: Database, config: Config) {
     headers.set("Cache-Control", "no-store");
     headers.set("X-Content-Type-Options", "nosniff");
     headers.set("Referrer-Policy", "no-referrer");
+    if (c.req.path.endsWith("verify-registration")) {
+      // 認証Responseと別のc.resにCookieを設定すると、Honoの後処理で認証Cookieを上書きする。
+      // 削除するCookieも同じResponseに追加し、登録直後のログイン状態を保持する。
+      for (const name of [registrationCookieName(config.secure), setupCookie]) {
+        headers.append("Set-Cookie", generateCookie(name, "", { path: "/api", maxAge: 0, httpOnly: true, secure: config.secure, sameSite: "strict" }));
+      }
+    }
     // セッション値や認証データ全体をJSONに複製せず、Cookieと必要なチャレンジだけを返す。
     if (c.req.method === "POST") {
       headers.delete("Content-Length"); headers.set("Content-Type", "application/json");
@@ -90,6 +104,8 @@ export function createApp(db: Database, config: Config) {
     return c.json({ user: { id: admin.userId, name: admin.name, email: admin.email, emailVerified: admin.emailVerified }, database: "connected" });
   });
   app.route("/", createAttendanceRoutes(db, access));
+  app.route("/", createIdentityRoutes(db, config, access, auth));
+  app.route("/", createDeviceRoutes(db, config, access));
   app.notFound((c) => c.json(error("NOT_FOUND", "この操作は利用できません。"), 404));
   return app;
 }

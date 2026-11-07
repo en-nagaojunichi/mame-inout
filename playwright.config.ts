@@ -1,5 +1,8 @@
 import { defineConfig, devices } from "@playwright/test";
 
+// 一度表示した復旧コード等を、失敗時に自動作成されるARIAの画面記録へ残さない。
+process.env.PLAYWRIGHT_NO_COPY_PROMPT = "1";
+
 export default defineConfig({
   testDir: "tests/e2e", workers: 1, retries: 0, timeout: 45000,
   use: {

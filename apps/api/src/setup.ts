@@ -31,7 +31,7 @@ export async function beginSetup(db: Database, input: { code: string; name: stri
   const token = newToken();
   await db.setupAttempt.deleteMany({ where: { expiresAt: { lt: new Date() } } });
   await db.setupAttempt.create({ data: {
-    tokenHash: hash(token), codeHash: state.codeHash, userId: randomUUID(), name: input.name, email: input.email,
+    tokenHash: hash(token), codeHash: state.codeHash, userId: randomUUID(), name: input.name, email: input.email.toLowerCase(),
     expiresAt: new Date(Math.min(Date.now() + 5 * 60_000, state.expiresAt.getTime())),
   } });
   return token;

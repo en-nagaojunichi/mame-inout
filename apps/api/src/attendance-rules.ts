@@ -1,6 +1,6 @@
 import type { AttendanceMode } from "@mame/contracts";
 
-export type AttendanceErrorStatus = 401 | 403 | 404 | 409 | 410 | 422 | 503;
+export type AttendanceErrorStatus = 401 | 403 | 404 | 409 | 410 | 422 | 429 | 503;
 
 export class AttendanceError extends Error {
   override readonly name = "AttendanceError";

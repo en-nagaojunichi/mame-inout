@@ -48,8 +48,8 @@ async function lockReception(tx: Tx, actor: ReceptionActor) {
 }
 
 async function lockAdmin(tx: Tx, actor: AdminActor): Promise<void> {
-  const rows = await tx.$queryRaw<{ role: string }[]>`SELECT role FROM "User" WHERE id = ${actor.userId} FOR SHARE`;
-  if (rows[0]?.role !== "ADMIN") throw new AttendanceError("FORBIDDEN", 403, "管理者の権限が必要です。");
+  const rows = await tx.$queryRaw<{ role: string; status: string }[]>`SELECT role, status FROM "User" WHERE id = ${actor.userId} FOR SHARE`;
+  if (rows[0]?.role !== "ADMIN" || rows[0]?.status !== "ACTIVE") throw new AttendanceError("FORBIDDEN", 403, "管理者の権限が必要です。");
 }
 
 async function lockPerson(tx: Tx, personId: string) {
@@ -111,7 +111,12 @@ export async function authenticateReception(db: Database, token: string): Promis
     WHERE c."tokenHash" = ${hash(token)} AND c."revokedAt" IS NULL AND c."expiresAt" > clock_timestamp()
       AND d.status = 'APPROVED' AND d."revokedAt" IS NULL AND d."approvedAt" <= clock_timestamp()
       AND d."expiresAt" > clock_timestamp()`;
-  return rows[0] ?? null;
+  const actor = rows[0];
+  if (!actor) return null;
+  // 共有ロック中に更新へ昇格させず、業務Txを始める前に最終利用を記録する。
+  const touched = await db.receptionDevice.updateMany({ where: { id: actor.deviceId, status: "APPROVED", revokedAt: null,
+    expiresAt: { gt: new Date() } }, data: { lastUsedAt: new Date() } });
+  return touched.count ? actor : null;
 }
 
 export async function issueAttendanceRequest(db: Database, actor: ReceptionActor): Promise<AttendanceTicket> {

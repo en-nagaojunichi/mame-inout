@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit",
     "generate": "prisma generate",
     "migrate": "tsx src/migrate.ts",
-    "setup-code": "tsx src/setup-code.ts"
+    "setup-code": "tsx src/setup-code.ts",
+    "recovery-code": "tsx src/admin-recovery-code.ts"
   },
   "dependencies": {
     "@better-auth/passkey": "1.7.18",

@@ -95,6 +95,12 @@ describe("実PostgreSQLと認証境界", () => {
     await db.setupState.update({ where: { id: 1 }, data: { completedAt: new Date(), expiresAt: new Date(Date.now() + 10000) } });
     expect(await beginSetup(db, input)).toBeNull();
   });
+  it("初期設定で入力した大文字メールは小文字に正規化して保存する", async () => {
+    const token = await beginSetup(db, { code, name: "メール表記の確認", email: "Legacy.Admin@EXAMPLE.TEST" });
+    expect(Boolean(token)).toBe(true);
+    const attempt = await db.setupAttempt.findUniqueOrThrow({ where: { tokenHash: hash(token!) } });
+    expect(attempt.email).toBe("legacy.admin@example.test");
+  });
   it("同時に確定しても管理者は1人で、使用済みコードを再利用できない", async () => {
     const a = await beginSetup(db, { code, name: "候補A", email: "a@example.test" });
     const b = await beginSetup(db, { code, name: "候補B", email: "b@example.test" });

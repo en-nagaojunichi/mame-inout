@@ -14,6 +14,8 @@ model User {
   emailVerified       Boolean              @default(false)
   image               String?
   role                String               @default("ADMIN")
+  status              String               @default("ACTIVE")
+  authVersion         Int                  @default(1)
   createdAt           DateTime             @default(now()) @db.Timestamptz
   updatedAt           DateTime             @updatedAt @db.Timestamptz
   sessions            Session[]
@@ -23,20 +25,26 @@ model User {
   createdVisits       AttendanceVisit[]    @relation("VisitCreator")
   attendanceRevisions AttendanceRevision[] @relation("RevisionActor")
   auditEvents         AuditEvent[]         @relation("AuditActor")
+  recoveryCodes       RecoveryCode[]
+  invitations         AdminInvitation[]
 }
 
 model Session {
-  id        String   @id
-  expiresAt DateTime @db.Timestamptz
-  token     String   @unique
-  createdAt DateTime @default(now()) @db.Timestamptz
-  updatedAt DateTime @updatedAt @db.Timestamptz
-  ipAddress String?
-  userAgent String?
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id              String    @id
+  expiresAt       DateTime  @db.Timestamptz
+  token           String    @unique
+  createdAt       DateTime  @default(now()) @db.Timestamptz
+  updatedAt       DateTime  @updatedAt @db.Timestamptz
+  ipAddress       String?
+  userAgent       String?
+  lastActivityAt  DateTime  @default(now()) @db.Timestamptz
+  authenticatedAt DateTime? @db.Timestamptz
+  passkeyId       String?
+  userId          String
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+  @@index([passkeyId])
 }
 
 model Account {
@@ -68,18 +76,19 @@ model Verification {
 }
 
 model Passkey {
-  id           String   @id
+  id           String    @id
   name         String?
   publicKey    String
   userId       String
-  credentialID String   @unique
+  credentialID String    @unique
   counter      Int
   deviceType   String
   backedUp     Boolean
   transports   String?
-  createdAt    DateTime @default(now()) @db.Timestamptz
+  createdAt    DateTime  @default(now()) @db.Timestamptz
+  lastUsedAt   DateTime? @db.Timestamptz
   aaguid       String?
-  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
 }
@@ -106,6 +115,47 @@ model RateBucket {
   key       String   @id
   count     Int
   startedAt DateTime @db.Timestamptz
+}
+
+// 招待先の識別情報は発行時に固定し、コードの所有者による宛先変更を認めない。
+model AdminInvitation {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  codeHash    String    @unique @db.Char(64)
+  name        String    @db.VarChar(100)
+  email       String    @db.VarChar(254)
+  expiresAt   DateTime  @db.Timestamptz
+  usedAt      DateTime? @db.Timestamptz
+  createdById String?
+  createdAt   DateTime  @default(now()) @db.Timestamptz
+  createdBy   User?     @relation(fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([createdById])
+  @@index([expiresAt])
+}
+
+// 招待・追加・復旧の許可はブラウザに束縛した短命な状態で、通常セッションとは分離する。
+model RegistrationAttempt {
+  tokenHash    String   @id @db.Char(64)
+  kind         String   @db.VarChar(16)
+  userId       String
+  version      Int?
+  invitationId String?  @db.Uuid
+  sessionId    String?
+  expiresAt    DateTime @db.Timestamptz
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+// 復旧コードは照合用ハッシュだけを保存し、限定登録の開始時点で一度だけ消費する。
+model RecoveryCode {
+  codeHash  String    @id @db.Char(64)
+  userId    String
+  usedAt    DateTime? @db.Timestamptz
+  createdAt DateTime  @default(now()) @db.Timestamptz
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }
 
 // 最初の版は1施設に限定し、時刻の保存値と表示用タイムゾーンを分ける。
@@ -169,6 +219,7 @@ model ReceptionDevice {
   visits       AttendanceVisit[]     @relation("VisitCreatedByDevice")
   requests     AttendanceRequest[]
   auditEvents  AuditEvent[]
+  application  ReceptionApplication?
 
   @@index([facilityId, status])
   @@index([approvedById])
@@ -186,6 +237,19 @@ model ReceptionCredential {
   device    ReceptionDevice @relation(fields: [deviceId], references: [id], onDelete: Cascade)
 
   @@index([deviceId])
+  @@index([expiresAt])
+}
+
+// 画面で照合するコードと、申請元だけが持つ秘密資格を分ける。
+model ReceptionApplication {
+  tokenHash        String          @id @db.Char(64)
+  deviceId         String          @unique @db.Uuid
+  confirmationCode String          @unique @db.Char(8)
+  expiresAt        DateTime        @db.Timestamptz
+  claimedAt        DateTime?       @db.Timestamptz
+  createdAt        DateTime        @default(now()) @db.Timestamptz
+  device           ReceptionDevice @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
   @@index([expiresAt])
 }
 

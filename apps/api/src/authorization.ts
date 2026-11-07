@@ -4,6 +4,7 @@ import type { Config } from "./config.js";
 import type { Database } from "./db.js";
 import type { createAuth } from "./auth.js";
 import { AttendanceError, authenticateReception } from "./attendance.js";
+import { validateAdminSession } from "./identity.js";
 
 export const receptionCookieName = (secure: boolean) => secure ? "__Secure-mame-reception" : "mame_reception";
 
@@ -15,10 +16,18 @@ export function createAuthorization(db: Database, config: Config, auth: ReturnTy
       const session = await auth.api.getSession({ headers: c.req.raw.headers });
       if (session) {
         if (session.user.role !== "ADMIN") throw new AttendanceError("FORBIDDEN", 403, "管理者の権限が必要です。");
-        return { userId: session.user.id, name: session.user.name, email: session.user.email, emailVerified: session.user.emailVerified };
+        return validateAdminSession(db, session.session.id);
       }
       if (await device(c)) throw new AttendanceError("FORBIDDEN", 403, "この端末では管理者の情報を表示できません。");
       throw new AttendanceError("UNAUTHENTICATED", 401, "パスキーでログインしてください。");
+    },
+    async recentAdmin(c: Context) {
+      const session = await auth.api.getSession({ headers: c.req.raw.headers });
+      if (!session) {
+        if (await device(c)) throw new AttendanceError("FORBIDDEN", 403, "この端末では管理者の操作はできません。");
+        throw new AttendanceError("UNAUTHENTICATED", 401, "パスキーでログインしてください。");
+      }
+      return validateAdminSession(db, session.session.id, true);
     },
     async reception(c: Context) {
       // 管理者Cookieを持っていても、受付端末の資格の代わりにはしない。

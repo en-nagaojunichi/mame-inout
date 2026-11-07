@@ -1,0 +1,27 @@
+# 依存関係
+node_modules/
+.pnpm-store/
+
+# ビルド・テスト成果物
+.next/
+out/
+dist/
+coverage/
+playwright-report/
+test-results/
+.turbo/
+*.tsbuildinfo
+apps/api/src/generated/
+
+# 環境設定・実行時データ
+.env
+.env.*
+!.env.example
+/data/
+/backups/
+/secrets/
+*.log
+
+# OSが作成するファイル
+.DS_Store
+Thumbs.db

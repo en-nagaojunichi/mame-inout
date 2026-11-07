@@ -1,0 +1,9 @@
+services:
+  tests:
+    secrets: !reset []
+    volumes:
+      - type: volume
+        source: desktop_secrets
+        target: /run/secrets
+        read_only: true
+        volume: { subpath: api }

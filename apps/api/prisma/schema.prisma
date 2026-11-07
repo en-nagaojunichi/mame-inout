@@ -1,0 +1,102 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id            String    @id
+  name          String
+  email         String    @unique
+  emailVerified Boolean   @default(false)
+  image         String?
+  role          String    @default("ADMIN")
+  createdAt     DateTime  @default(now()) @db.Timestamptz
+  updatedAt     DateTime  @updatedAt @db.Timestamptz
+  sessions      Session[]
+  accounts      Account[]
+  passkeys      Passkey[]
+}
+
+model Session {
+  id        String   @id
+  expiresAt DateTime @db.Timestamptz
+  token     String   @unique
+  createdAt DateTime @default(now()) @db.Timestamptz
+  updatedAt DateTime @updatedAt @db.Timestamptz
+  ipAddress String?
+  userAgent String?
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([userId])
+}
+
+model Account {
+  id                    String    @id
+  accountId             String
+  providerId            String
+  userId                String
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime? @db.Timestamptz
+  refreshTokenExpiresAt DateTime? @db.Timestamptz
+  scope                 String?
+  password              String?
+  createdAt             DateTime @default(now()) @db.Timestamptz
+  updatedAt             DateTime @updatedAt @db.Timestamptz
+  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([userId])
+}
+
+model Verification {
+  id         String   @id
+  identifier String   @unique
+  value      String
+  expiresAt  DateTime @db.Timestamptz
+  createdAt  DateTime @default(now()) @db.Timestamptz
+  updatedAt  DateTime @updatedAt @db.Timestamptz
+}
+
+model Passkey {
+  id           String   @id
+  name         String?
+  publicKey    String
+  userId       String
+  credentialID String   @unique
+  counter      Int
+  deviceType   String
+  backedUp     Boolean
+  transports   String?
+  createdAt    DateTime @default(now()) @db.Timestamptz
+  aaguid       String?
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([userId])
+}
+
+// 1行に限定した設定行をロックし、最初の管理者の確定を直列化する。
+model SetupState {
+  id          Int       @id @default(1)
+  codeHash    String?
+  expiresAt   DateTime?  @db.Timestamptz
+  completedAt DateTime?  @db.Timestamptz
+}
+
+// パスキー検証前にはUserを作らず、短命な申請だけを保持する。
+model SetupAttempt {
+  tokenHash String   @id
+  userId    String   @unique
+  codeHash  String
+  name      String
+  email     String
+  expiresAt DateTime @db.Timestamptz
+}
+
+model RateBucket {
+  key       String   @id
+  count     Int
+  startedAt DateTime @db.Timestamptz
+}

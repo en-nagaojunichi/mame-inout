@@ -1,0 +1,6 @@
+# 既存NginxでTLSを終端する場合。compose.https.yamlとは併用しない。
+services:
+  proxy:
+    ports: !override ["127.0.0.1:${HTTP_PORT:-18080}:8080"]
+    volumes:
+      - ./infra/Caddyfile.nginx:/etc/caddy/Caddyfile:ro

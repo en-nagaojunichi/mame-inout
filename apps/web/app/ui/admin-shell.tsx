@@ -30,6 +30,7 @@ function MenuIcon({ name }: { name: string }) {
     history: <><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></>,
     person: <><circle cx="12" cy="7" r="4" /><path d="M4 21v-2a8 8 0 0 1 16 0v2" /></>,
     device: <><rect x="6" y="2" width="12" height="20" rx="2" /><path d="M10 18h4" /></>,
+    qr: <><rect x="3" y="3" width="6" height="6" rx="1" /><rect x="15" y="3" width="6" height="6" rx="1" /><rect x="3" y="15" width="6" height="6" rx="1" /><path d="M15 15h3v3h3M15 21h3M21 12v3M12 3v3M3 12h3M12 12v6" /></>,
     shield: <><path d="m12 3 8 3v6c0 5-8 9-8 9s-8-4-8-9V6z" /><path d="m8 12 3 3 5-6" /></>,
     appearance: <><rect x="3" y="3" width="18" height="18" rx="3" /><circle cx="8" cy="8" r="1" /><path d="m3 17 6-5 4 3 4-5 4 5" /></>,
     storage: <><path d="M4 5h16v4H4zM6 9v12h12V9M10 13h4" /></>,
@@ -80,7 +81,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
     </header>
     <div className="admin-layout">
       {admin && <>
-        <nav className="admin-sidebar" aria-label="管理メニュー">{menu}<div className="sidebar-reception"><MenuIcon name="device" /><p>受付用のブラウザで</p><Link href="/reception">QR受付を開く <span aria-hidden="true">↗</span></Link></div><p className="admin-nav-help">管理者の画面</p></nav>
+        <nav className="admin-sidebar" aria-label="管理メニュー">{menu}<div className="sidebar-reception"><MenuIcon name="device" /><p>受付用のブラウザで</p><Link href="/reception">QR受付を開く <span aria-hidden="true">↗</span></Link></div></nav>
       </>}
       <main id="main" className="admin-main">
         {admin && <p className="admin-location"><span>管理画面</span><span aria-hidden="true"> / </span>{currentLabel}</p>}
@@ -88,7 +89,8 @@ export function AdminShell({ children }: { children: ReactNode }) {
         {loading ? <p role="status">ログインの状態を確認しています…</p> : admin ? children : <section className="content-panel"><h1>管理者のログインが必要です</h1><p>登録済みのパスキーでログインしてください。受付用に承認された端末から、管理情報を見ることはできません。</p><Link className="button-link" href="/">ログイン画面へ</Link></section>}
       </main>
     </div>
-    <footer className="admin-footer"><AppVersion /><span>開発中の検証版です。動作確認用の情報を使用してください。</span></footer>
+    <footer className="admin-footer"><AppVersion /></footer>
+    {admin && !menuOpen && <Link className="reception-shortcut" href="/reception" prefetch={false}><MenuIcon name="qr" /><span>QR受付を開く</span></Link>}
     <Modal open={menuOpen} title="管理メニュー" description="行いたい操作を選んでください。" onClose={() => setMenuOpen(false)} returnFocusRef={menuButton}>
       <div className="mobile-nav"><button className="secondary mobile-nav-close" data-modal-initial onClick={() => setMenuOpen(false)}>メニューを閉じる <span aria-hidden="true">×</span></button><nav aria-label="管理メニュー">{menu}</nav><p className="admin-nav-help">ログイン中：{admin?.user.name}</p></div>
     </Modal>

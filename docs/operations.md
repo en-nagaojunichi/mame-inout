@@ -4,6 +4,8 @@
 
 各コマンドは、値を表示せずに秘密ファイルを読みます。`set -x`、設定全体の表示、DB接続文字列の貼り付けは行わないでください。停止したときはデータや鍵を削除せず、同じ設定で再開します。
 
+現在は開発版です。以下は実装された保守操作の手順であり、利用する外部保管先や復元先での動作確認に代わるものではありません。管理画面の表示と、別サーバーへの保存・復元の成功を分けて確認してください。
+
 ## 何を、どこに残すか
 
 | 保存するもの | 保存先・期間 |
@@ -20,7 +22,7 @@
 ## バックアップを取る
 
 ```sh
-sudo python3 /opt/inout/releases/0.1.0-dev.m07/source/scripts/operations.py --config /etc/inout/operations.json backup
+sudo python3 /opt/inout/releases/0.1.0-dev.m08/source/scripts/operations.py --config /etc/inout/operations.json backup
 ```
 
 「暗号化と別サーバーへの保管を確認しました」と表示されたら、保管IDと実行日を控えます。外部保管先から読み戻した指紋まで確認して初めて成功とします。取得だけでは、復元できることの確認にはなりません。
@@ -38,7 +40,7 @@ sudo python3 /opt/inout/releases/0.1.0-dev.m07/source/scripts/operations.py --co
 画面で削除を受け付けた時点では、まだ個人情報は消えていません。サーバー管理者は、別サーバーの接続・容量・アクセス権を確認し、次のコマンドで再試行します。
 
 ```sh
-sudo python3 /opt/inout/releases/0.1.0-dev.m07/source/scripts/operations.py --config /etc/inout/operations.json maintenance
+sudo python3 /opt/inout/releases/0.1.0-dev.m08/source/scripts/operations.py --config /etc/inout/operations.json maintenance
 ```
 
 未退室の記録などが原因なら、施設の管理者が状況を確認します。DBの処理済み欄や削除台帳を直接書き換えて、完了表示へ変更しないでください。通常APIには、削除指示を消したり処理済みへ書き換えたりする権限を与えていません。
@@ -50,20 +52,20 @@ sudo python3 /opt/inout/releases/0.1.0-dev.m07/source/scripts/operations.py --co
 3. 新しい配布物のコマンドで診断と更新を実行します。既存の管理者へ、受付を一時停止することを知らせます。
 
 ```sh
-sudo python3 /opt/inout/releases/0.1.0-dev.m07/source/scripts/operations.py --config /etc/inout/operations.json diagnose
-sudo python3 /opt/inout/releases/0.1.0-dev.m07/source/scripts/operations.py --config /etc/inout/operations.json update
+sudo python3 /opt/inout/releases/0.1.0-dev.m08/source/scripts/operations.py --config /etc/inout/operations.json diagnose
+sudo python3 /opt/inout/releases/0.1.0-dev.m08/source/scripts/operations.py --config /etc/inout/operations.json update
 ```
 
 更新は、受付停止、暗号化バックアップの外部保管、専用移行ロールによるDB移行、最新台帳の確認、アプリ起動の順です。DBや既存の鍵を作り直しません。途中で止まったら、同じ設定・同じコマンドで再開します。移行後に、古いAPIだけを自動で戻すことはしません。
 
-この版が扱う移行元は、配布ソースの最初の5世代と完全一致するM05のDB、または6世代のM06のDBです。M05からの初回更新は、削除機能を公開する前に新しい設置先IDを記録してバックアップと結び付けます。6世代の既存台帳を空に戻すことはありません。他の世代・変更済み移行ファイル・由来不明のDBは自動更新を止めます。
+この版が扱う移行元は、配布ソースの最初の5世代と完全一致するM05のDB、または6世代のM06以降のDBです。M05からの初回更新は、削除機能を公開する前に新しい設置先IDを記録してバックアップと結び付けます。6世代の既存台帳を空に戻すことはありません。他の世代・変更済み移行ファイル・由来不明のDBは自動更新を止めます。
 
 更新後は、管理者がログインできること、既存の在室・履歴を読めること、受付用QRの入室・退室を確認してください。新しい配布物を使うよう、自動保守の設定も管理者が確認します。既存タイマーと異なる設定を自動上書きしないため、以前のジョブの停止と差し替えは明示的に行います。
 
 ## DBの資格情報だけを交換する
 
 ```sh
-sudo python3 /opt/inout/releases/0.1.0-dev.m07/source/scripts/operations.py --config /etc/inout/operations.json rotate-db app
+sudo python3 /opt/inout/releases/0.1.0-dev.m08/source/scripts/operations.py --config /etc/inout/operations.json rotate-db app
 ```
 
 最後の `app` は、通常API用です。移行用は `migrate`、バックアップ用は `backup`、保持・削除用は `maintenance` を選びます。まずバックアップを取り、対象ロールのDB側パスワードとファイルを合わせ、新資格の接続と旧資格の拒否を確認します。交換途中に停止しても、同じ対象で再実行します。
@@ -86,7 +88,7 @@ sudo python3 /opt/inout/releases/0.1.0-dev.m07/source/scripts/operations.py --co
 4. 記録した設置先ID・保管IDを指定します。次の `設置先ID`・`保管ID` は実際の記録に置き換えます。
 
 ```sh
-sudo python3 /opt/inout/releases/0.1.0-dev.m07/source/scripts/operations.py --config /etc/inout-restored/operations.json restore-check --deployment-id 設置先ID --backup-id 保管ID --backup-key /安全な一時保管先/backup-private.asc --ledger-key /安全な一時保管先/ledger-private.asc
+sudo python3 /opt/inout/releases/0.1.0-dev.m08/source/scripts/operations.py --config /etc/inout-restored/operations.json restore-check --deployment-id 設置先ID --backup-id 保管ID --backup-key /安全な一時保管先/backup-private.asc --ledger-key /安全な一時保管先/ledger-private.asc
 ```
 
 全表の件数・内容の指紋を照合し、バックアップより後に確定した削除指示も適用します。過去のセッション、パスキー、復旧コード、QR、受付端末の資格は使えなくします。途中で止まった場合は、同じ設定・同じ保管IDで再実行します。最新台帳がない、古い、由来が異なる、取得できない場合は公開を開始しません。
@@ -96,7 +98,7 @@ sudo python3 /opt/inout/releases/0.1.0-dev.m07/source/scripts/operations.py --co
 5. 「隔離復元と削除台帳の再適用が完了しました」を確認してから、公開開始します。この時点でもう一度、外部の最新世代を照合します。
 
 ```sh
-sudo python3 /opt/inout/releases/0.1.0-dev.m07/source/scripts/operations.py --config /etc/inout-restored/operations.json publish-restore
+sudo python3 /opt/inout/releases/0.1.0-dev.m08/source/scripts/operations.py --config /etc/inout-restored/operations.json publish-restore
 ```
 
 6. HTTPSの接続先を復元先へ向けた後、サーバー管理者が本人確認の上で、[復旧コードの発行](usage.md#サーバー管理者が復旧コードを発行する)を行います。管理者本人が新しいパスキーを登録します。以前のコードは使用できません。
@@ -104,3 +106,12 @@ sudo python3 /opt/inout/releases/0.1.0-dev.m07/source/scripts/operations.py --co
 8. 復元時に持ち込んだ復号鍵を通常サーバーから取り除き、元の別保管を維持します。新しい環境の自動保守・バックアップも設定します。
 
 M05世代のバックアップは、初回M06更新が記録した識別子に結び付くものだけ扱います。由来不明の古いdumpを復元し、新しい空の台帳を作って公開する操作は、このコマンドでは行いません。
+
+## 定期的に確認すること
+
+- 「稼働状況」で最終バックアップ日時を確認し、想定する間隔で更新されているかを見ます。画面が開けることだけをバックアップ成功の証拠にしません。
+- 「保存と削除」で処理待ち・保留や前回の期限削除を確認します。外部保管の停止を、処理済みの手動書き換えで解消しないでください。
+- 外部保管先と鍵の保管先へアクセスできること、残す世代の復号鍵が揃うことを確認します。実際の復元確認は、既存データを上書きしない空の別環境で行います。
+- 更新後は画面下部の版、既存パスキー、在室・履歴、架空利用者の受付を確認します。復元後は旧資格が失効するため、新しいパスキーと再承認した受付端末で確認します。
+
+失敗時は[困ったときの対処](troubleshooting.md)を参照してください。

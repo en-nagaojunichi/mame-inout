@@ -1,6 +1,6 @@
 {
   "name": "mame-inout",
-  "version": "0.1.0-dev.m06",
+  "version": "0.1.0-dev.m07",
   "private": true,
   "type": "module",
   "workspaces": [
@@ -36,5 +36,8 @@
     "esbuild@0.28.2": true,
     "prisma@7.10.1": true,
     "@prisma/engines@7.10.1": true
+  },
+  "overrides": {
+    "minimatch": "11.0.1"
   }
 }

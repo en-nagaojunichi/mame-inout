@@ -14,7 +14,12 @@ COPY scripts scripts
 COPY tests tests
 RUN npm run generate && npm run build && npm run typecheck && npm run lint && npm test
 
-FROM node:24.22.2-bookworm-slim AS api
+FROM node:24.22.2-bookworm-slim AS runtime
+# 実行時はNodeだけを使う。同梱npmの依存を攻撃対象へ残さず、ビルド段階とは分離する。
+RUN rm -rf /usr/local/lib/node_modules/npm \
+    && rm -f /usr/local/bin/npm /usr/local/bin/npx
+
+FROM runtime AS api
 WORKDIR /app
 ENV NODE_ENV=production
 COPY --from=build /app/node_modules ./node_modules
@@ -24,7 +29,7 @@ USER 1000:1000
 WORKDIR /app/apps/api
 CMD ["node", "dist/server.js"]
 
-FROM node:24.22.2-bookworm-slim AS web
+FROM runtime AS web
 WORKDIR /app
 ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 HOSTNAME=0.0.0.0 PORT=3000
 COPY --from=build --chown=1000:1000 /app/apps/web/.next/standalone ./

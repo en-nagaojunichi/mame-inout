@@ -28,10 +28,15 @@ jobs:
           node-version-file: .node-version
           cache: npm
       - run: npm ci --no-audit --no-fund
+      - name: 依存関係の既知の重大な脆弱性を確認
+        # APIイメージにはビルド時の依存も含むため、開発依存を検査から除外しない。
+        run: npm audit --audit-level=high
       - run: npm run generate && npm run build -w @mame/contracts
       - run: npm run typecheck && npm run lint && npm test && npm run build
       - name: 保管・復元の失敗と再実行を確認
         run: python3 -B tests/operations_test.py
+      - name: 性能検査が対象外の環境を拒否することを確認
+        run: node --test tests/performance/m07-guards.test.mjs
       - name: 使い捨てDBとサービス別の秘密を準備
         run: |
           npm run dev:setup

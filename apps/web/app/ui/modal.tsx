@@ -35,6 +35,14 @@ export function Modal({ open, title, description, busy = false, onClose, returnF
     if (open) dialog.current?.querySelector<HTMLElement>("[data-modal-initial]")?.focus();
   }, [open, title]);
 
+  useEffect(() => {
+    const element = dialog.current;
+    if (!open || !busy || !element) return;
+    // 実行ボタンを無効にするとフォーカスがbodyへ落ちるため、処理中もTabをモーダル内で受け取る。
+    const active = document.activeElement;
+    if (!element.contains(active) || active?.matches(":disabled")) element.focus();
+  }, [open, busy]);
+
   return <dialog ref={dialog} className="modal" tabIndex={-1} aria-labelledby={titleId} aria-describedby={descriptionId}
     onCancel={(event) => { event.preventDefault(); if (!busy) onClose(); }}
     onKeyDown={(event) => {

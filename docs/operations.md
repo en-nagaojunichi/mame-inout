@@ -20,7 +20,7 @@
 ## バックアップを取る
 
 ```sh
-sudo python3 /opt/inout/releases/0.1.0-dev.m06/source/scripts/operations.py --config /etc/inout/operations.json backup
+sudo python3 /opt/inout/releases/0.1.0-dev.m07/source/scripts/operations.py --config /etc/inout/operations.json backup
 ```
 
 「暗号化と別サーバーへの保管を確認しました」と表示されたら、保管IDと実行日を控えます。外部保管先から読み戻した指紋まで確認して初めて成功とします。取得だけでは、復元できることの確認にはなりません。
@@ -38,7 +38,7 @@ sudo python3 /opt/inout/releases/0.1.0-dev.m06/source/scripts/operations.py --co
 画面で削除を受け付けた時点では、まだ個人情報は消えていません。サーバー管理者は、別サーバーの接続・容量・アクセス権を確認し、次のコマンドで再試行します。
 
 ```sh
-sudo python3 /opt/inout/releases/0.1.0-dev.m06/source/scripts/operations.py --config /etc/inout/operations.json maintenance
+sudo python3 /opt/inout/releases/0.1.0-dev.m07/source/scripts/operations.py --config /etc/inout/operations.json maintenance
 ```
 
 未退室の記録などが原因なら、施設の管理者が状況を確認します。DBの処理済み欄や削除台帳を直接書き換えて、完了表示へ変更しないでください。通常APIには、削除指示を消したり処理済みへ書き換えたりする権限を与えていません。
@@ -50,8 +50,8 @@ sudo python3 /opt/inout/releases/0.1.0-dev.m06/source/scripts/operations.py --co
 3. 新しい配布物のコマンドで診断と更新を実行します。既存の管理者へ、受付を一時停止することを知らせます。
 
 ```sh
-sudo python3 /opt/inout/releases/0.1.0-dev.m06/source/scripts/operations.py --config /etc/inout/operations.json diagnose
-sudo python3 /opt/inout/releases/0.1.0-dev.m06/source/scripts/operations.py --config /etc/inout/operations.json update
+sudo python3 /opt/inout/releases/0.1.0-dev.m07/source/scripts/operations.py --config /etc/inout/operations.json diagnose
+sudo python3 /opt/inout/releases/0.1.0-dev.m07/source/scripts/operations.py --config /etc/inout/operations.json update
 ```
 
 更新は、受付停止、暗号化バックアップの外部保管、専用移行ロールによるDB移行、最新台帳の確認、アプリ起動の順です。DBや既存の鍵を作り直しません。途中で止まったら、同じ設定・同じコマンドで再開します。移行後に、古いAPIだけを自動で戻すことはしません。
@@ -63,7 +63,7 @@ sudo python3 /opt/inout/releases/0.1.0-dev.m06/source/scripts/operations.py --co
 ## DBの資格情報だけを交換する
 
 ```sh
-sudo python3 /opt/inout/releases/0.1.0-dev.m06/source/scripts/operations.py --config /etc/inout/operations.json rotate-db app
+sudo python3 /opt/inout/releases/0.1.0-dev.m07/source/scripts/operations.py --config /etc/inout/operations.json rotate-db app
 ```
 
 最後の `app` は、通常API用です。移行用は `migrate`、バックアップ用は `backup`、保持・削除用は `maintenance` を選びます。まずバックアップを取り、対象ロールのDB側パスワードとファイルを合わせ、新資格の接続と旧資格の拒否を確認します。交換途中に停止しても、同じ対象で再実行します。
@@ -86,7 +86,7 @@ sudo python3 /opt/inout/releases/0.1.0-dev.m06/source/scripts/operations.py --co
 4. 記録した設置先ID・保管IDを指定します。次の `設置先ID`・`保管ID` は実際の記録に置き換えます。
 
 ```sh
-sudo python3 /opt/inout/releases/0.1.0-dev.m06/source/scripts/operations.py --config /etc/inout-restored/operations.json restore-check --deployment-id 設置先ID --backup-id 保管ID --backup-key /安全な一時保管先/backup-private.asc --ledger-key /安全な一時保管先/ledger-private.asc
+sudo python3 /opt/inout/releases/0.1.0-dev.m07/source/scripts/operations.py --config /etc/inout-restored/operations.json restore-check --deployment-id 設置先ID --backup-id 保管ID --backup-key /安全な一時保管先/backup-private.asc --ledger-key /安全な一時保管先/ledger-private.asc
 ```
 
 全表の件数・内容の指紋を照合し、バックアップより後に確定した削除指示も適用します。過去のセッション、パスキー、復旧コード、QR、受付端末の資格は使えなくします。途中で止まった場合は、同じ設定・同じ保管IDで再実行します。最新台帳がない、古い、由来が異なる、取得できない場合は公開を開始しません。
@@ -96,7 +96,7 @@ sudo python3 /opt/inout/releases/0.1.0-dev.m06/source/scripts/operations.py --co
 5. 「隔離復元と削除台帳の再適用が完了しました」を確認してから、公開開始します。この時点でもう一度、外部の最新世代を照合します。
 
 ```sh
-sudo python3 /opt/inout/releases/0.1.0-dev.m06/source/scripts/operations.py --config /etc/inout-restored/operations.json publish-restore
+sudo python3 /opt/inout/releases/0.1.0-dev.m07/source/scripts/operations.py --config /etc/inout-restored/operations.json publish-restore
 ```
 
 6. HTTPSの接続先を復元先へ向けた後、サーバー管理者が本人確認の上で、[復旧コードの発行](usage.md#サーバー管理者が復旧コードを発行する)を行います。管理者本人が新しいパスキーを登録します。以前のコードは使用できません。

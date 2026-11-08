@@ -123,7 +123,7 @@ test("URLのQRを読み取ってもページを開かず、受付要求も記録
   let externalRequests = 0;
   page.on("request", (request) => { if (new URL(request.url()).hostname === "example.test") externalRequests++; });
   await startCamera(page);
-  await expect(page.getByText("MameInOutで発行した利用者のQRをかざしてください。読み取ったURLなどは開きません。", { exact: true })).toBeVisible();
+  await expect(page.getByText("このシステムで発行した利用者のQRをかざしてください。読み取ったURLなどは開きません。", { exact: true })).toBeVisible();
   expect(new URL(page.url()).pathname).toBe("/reception");
   expect({ externalRequests, records: calls.records, tickets: calls.tickets }).toEqual({ externalRequests: 0, records: 0, tickets: 0 });
 });

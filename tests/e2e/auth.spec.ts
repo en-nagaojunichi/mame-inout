@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { test, expect } from "@playwright/test";
 import { cookieMetadata, cookieName, maskSecretDisplays } from "./secret-displays";
 import { runPeopleReceptionFlow } from "./people-reception-flow";
+import { runHistoryAppearanceFlow } from "./history-appearance-flow";
 
 test("初期登録からパスキーログイン・ログアウトまで", async ({ page, context, browser, baseURL }, testInfo) => {
   test.setTimeout(180_000);
@@ -242,5 +243,6 @@ test("初期登録からパスキーログイン・ログアウトまで", async
   expect([400, 401]).toContain((await oldPasskeyResponse).status());
   expect((await context.request.get("/api/admin/me")).status()).toBe(401);
   await runPeopleReceptionFlow(recoveryContext, browser, baseURL!);
+  await runHistoryAppearanceFlow(recoveryPage, recoveryContext, baseURL!);
   await recoveryContext.close();
 });

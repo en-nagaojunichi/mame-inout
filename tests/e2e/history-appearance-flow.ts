@@ -1,0 +1,88 @@
+import { expect, type BrowserContext, type Page } from "@playwright/test";
+import { localTimeInput } from "../../apps/web/app/ui/attendance-display";
+import { pngFixture } from "../appearance-fixture";
+
+// 仮想認証器と専用DBの架空データを通し、画面・記録・CSV・表示設定の一致を確認する。
+export async function runHistoryAppearanceFlow(page: Page, admin: BrowserContext, baseURL: string) {
+  // 繰り返し検証で残った架空名簿と混同せず、今回の対象だけを選択する。
+  const name = `M05の記録確認-${crypto.randomUUID().slice(0, 8)}`;
+  const person = await admin.request.post("/api/admin/people", { headers: { Origin: baseURL }, data: { displayName: name, affiliation: "架空の教室" } });
+  expect(person.status()).toBe(201);
+  const personId = (await person.json()).id as string;
+  const before = await (await admin.request.get("/api/admin/dashboard")).json();
+  const enteredAt = new Date(Date.now() - 7_200_000).toISOString(), exitedAt = new Date(Date.now() - 3_600_000).toISOString();
+  await page.goto(`/attendance?personId=${personId}`);
+  await page.getByRole("button", { name: "手動で記録を追加", exact: true }).click();
+  const modal = page.getByRole("dialog");
+  await modal.getByLabel("利用者を名前・所属で探す", { exact: true }).fill(name);
+  await modal.getByRole("button", { name: "利用者を検索", exact: true }).click();
+  await modal.getByRole("button", { name: new RegExp(name) }).click();
+  await modal.getByLabel("入室日時", { exact: true }).fill(localTimeInput(enteredAt, "Asia/Tokyo"));
+  await modal.getByLabel("変更理由", { exact: true }).fill("受付できなかった架空記録を補う");
+  await modal.getByRole("button", { name: "記録を追加", exact: true }).click();
+  await expect(page.getByRole("status")).toContainText("記録を追加しました。");
+  let history = await (await admin.request.get(`/api/admin/attendance?personId=${personId}`)).json();
+  expect(history.items.length).toBe(1);
+  const visitId = history.items[0].id as string;
+  const inside = await (await admin.request.get("/api/admin/dashboard")).json();
+  expect(inside.counts.inside).toBe(before.counts.inside + 1);
+  await page.goto("/presence");
+  await page.getByLabel("名前・所属で検索", { exact: true }).fill(name);
+  await page.getByRole("button", { name: "検索", exact: true }).click();
+  await expect(page.getByRole("listitem").filter({ hasText: name })).toBeVisible();
+  await page.getByRole("link", { name: new RegExp(`履歴・訂正.*${name}`) }).click();
+  await page.getByRole("button", { name: new RegExp(`詳細・訂正.*${name}`) }).click();
+  await modal.getByRole("button", { name: "時刻を訂正", exact: true }).click();
+  await modal.getByLabel("退室日時").fill(localTimeInput(exitedAt, "Asia/Tokyo"));
+  await modal.getByLabel("変更理由", { exact: true }).fill("退室の架空時刻を訂正");
+  await modal.getByRole("button", { name: "訂正を保存", exact: true }).click();
+  await expect(page.getByRole("status")).toContainText("記録を訂正しました。");
+  history = await (await admin.request.get(`/api/admin/attendance?personId=${personId}`)).json();
+  expect(history.items.length).toBe(1);
+  expect(history.items[0].exitedAt).toBe(exitedAt);
+  expect(history.items[0].corrected).toBe(true);
+  expect((await (await admin.request.get(`/api/admin/attendance/${visitId}`)).json()).revisions.length).toBe(2);
+  expect((await (await admin.request.get("/api/admin/dashboard")).json()).counts.inside).toBe(before.counts.inside);
+  await page.getByRole("button", { name: "CSVをダウンロード", exact: true }).click();
+  const download = page.waitForEvent("download");
+  await modal.getByRole("button", { name: "CSVをダウンロード", exact: true }).click();
+  const stream = await (await download).createReadStream();
+  if (!stream) throw new Error("CSVを読み戻せませんでした。");
+  const chunks: Buffer[] = []; for await (const chunk of stream) chunks.push(Buffer.from(chunk));
+  const csv = Buffer.concat(chunks);
+  expect(csv.subarray(0, 3).equals(Buffer.from([239, 187, 191]))).toBe(true);
+  expect(csv.toString("utf8")).toContain(name);
+  expect(csv.toString("utf8")).toContain("訂正あり");
+  await page.getByRole("button", { name: new RegExp(`詳細・訂正.*${name}`) }).click();
+  await modal.getByRole("button", { name: "記録を取り消す", exact: true }).click();
+  await modal.getByLabel("変更理由", { exact: true }).fill("実在しない確認用の記録を取り消す");
+  await modal.getByRole("button", { name: "この記録を取り消す", exact: true }).click();
+  await expect(page.getByRole("status")).toContainText("記録を取り消しました。");
+  expect((await (await admin.request.get(`/api/admin/attendance?personId=${personId}`)).json()).items.length).toBe(0);
+  expect((await (await admin.request.get(`/api/admin/attendance?personId=${personId}&status=canceled`)).json()).items.length).toBe(1);
+
+  const keysBefore = (await (await admin.request.get("/api/admin/security")).json()).passkeys.map((key: { id: string }) => key.id);
+  await page.goto("/settings/appearance");
+  await page.getByLabel("システムの表示名", { exact: true }).fill("教室の入退出管理");
+  const image = pngFixture();
+  await page.getByLabel("システムアイコンのPNG", { exact: true }).setInputFiles({ name: "icon.png", mimeType: "image/png", buffer: image });
+  await expect(page.getByAltText("選択したシステムアイコン")).toBeVisible();
+  await page.getByLabel("ファビコンのPNG", { exact: true }).setInputFiles({ name: "favicon.png", mimeType: "image/png", buffer: image });
+  await expect(page.getByAltText("選択したファビコン")).toBeVisible();
+  await page.getByRole("button", { name: "変更を保存", exact: true }).click();
+  await expect(page.getByRole("status")).toContainText("表示設定を保存しました。");
+  const appearance = await (await admin.request.get("/api/appearance")).json();
+  expect({ name: appearance.displayName, icon: appearance.customIcon, favicon: appearance.customFavicon }).toEqual({ name: "教室の入退出管理", icon: true, favicon: true });
+  expect((await admin.request.get(appearance.faviconUrl)).headers()["content-type"]).toBe("image/png");
+  await page.reload(); await expect(page.locator(".admin-header .system-brand")).toHaveText("教室の入退出管理");
+  // 表示の変更後も、登録済みの同じパスキーでログアウトと再ログインができる。
+  await page.getByRole("button", { name: "ログアウト", exact: true }).click();
+  await page.getByRole("button", { name: "パスキーでログイン", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "管理ホーム", exact: true })).toBeVisible();
+  expect((await (await admin.request.get("/api/admin/security")).json()).passkeys.map((key: { id: string }) => key.id)).toEqual(keysBefore);
+  await page.goto("/settings/appearance"); await page.getByRole("button", { name: "すべて既定に戻す", exact: true }).click();
+  await modal.getByRole("button", { name: "既定の表示を使う", exact: true }).click();
+  await page.getByRole("button", { name: "変更を保存", exact: true }).click();
+  await expect(page.getByRole("status")).toContainText("表示設定を保存しました。");
+  expect((await (await admin.request.get("/api/appearance")).json()).displayName).toBe("入退出管理システム");
+}

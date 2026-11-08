@@ -9,7 +9,8 @@ server {
     server_name mame.example.com;
     ssl_certificate /etc/ssl/example/fullchain.pem;
     ssl_certificate_key /etc/ssl/example/private.key;
-    client_max_body_size 32k;
+    # 表示画像の更新用。認証・業務APIにはHonoで従来の32KiB上限を適用する。
+    client_max_body_size 192k;
     access_log off;
     add_header Strict-Transport-Security "max-age=31536000" always;
     location / {

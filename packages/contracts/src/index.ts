@@ -1,4 +1,5 @@
 import { z } from "zod";
+export * from "./appearance.js";
 export * from "./attendance.js";
 export * from "./identity.js";
 export * from "./devices.js";

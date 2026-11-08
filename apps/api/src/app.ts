@@ -13,6 +13,7 @@ import { AttendanceError } from "./attendance.js";
 import { createIdentityRoutes } from "./identity-routes.js";
 import { createDeviceRoutes } from "./device-routes.js";
 import { createPeopleRoutes } from "./people-routes.js";
+import { createAppearanceRoutes } from "./appearance-routes.js";
 import { registrationCookieName } from "./identity.js";
 
 const error = (code: string, message: string) => ({ code, message });
@@ -39,7 +40,9 @@ export function createApp(db: Database, config: Config) {
     if (c.req.header("Sec-Fetch-Site") === "cross-site") return c.json(error("ORIGIN_DENIED", "正しいURLを開いてください。"), 403);
     await next();
   });
-  app.use("*", bodyLimit({ maxSize: 32 * 1024, onError: (c) => c.json(error("INPUT_TOO_LARGE", "入力が長すぎます。"), 413) }));
+  // 表示画像の更新だけ上限を広げ、認証や業務APIの入力上限は維持する。
+  app.use("*", async (c, next) => bodyLimit({ maxSize: c.req.method === "PUT" && c.req.path === "/api/admin/appearance" ? 192 * 1024 : 32 * 1024,
+    onError: (context) => context.json(error("INPUT_TOO_LARGE", "入力が長すぎます。画像の容量を小さくしてください。"), 413) })(c, next));
   app.onError((cause, c) => {
     // 準備済みのRetry-Afterも保ち、例外やDB接続情報は利用者へ返さない。
     c.header("Cache-Control", "no-store"); c.header("X-Content-Type-Options", "nosniff"); c.header("Referrer-Policy", "no-referrer");
@@ -108,6 +111,7 @@ export function createApp(db: Database, config: Config) {
   app.route("/", createIdentityRoutes(db, config, access, auth));
   app.route("/", createDeviceRoutes(db, config, access));
   app.route("/", createPeopleRoutes(db, access));
+  app.route("/", createAppearanceRoutes(db, access));
   app.notFound((c) => c.json(error("NOT_FOUND", "この操作は利用できません。"), 404));
   return app;
 }

@@ -53,9 +53,9 @@ async function administrator(role = "ADMIN") {
     const user = await db.user.create({ data: { id: randomUUID(), name: "権限確認の管理者", email: `${randomUUID()}@example.test`, role } });
     createdUserIds.push(user.id);
     const token = newToken();
-    await db.session.create({ data: { id: randomUUID(), userId: user.id, token, expiresAt: new Date(Date.now() + 60_000) } });
+    const session = await db.session.create({ data: { id: randomUUID(), userId: user.id, token, expiresAt: new Date(Date.now() + 600_000), authenticatedAt: new Date() } });
     const signature = createHmac("sha256", config.secret).update(token).digest("base64");
-    return { actor: { userId: user.id }, cookie: `${config.secure ? "__Secure-" : ""}better-auth.session_token=${encodeURIComponent(`${token}.${signature}`)}` };
+    return { actor: { userId: user.id, sessionId: session.id }, cookie: `${config.secure ? "__Secure-" : ""}better-auth.session_token=${encodeURIComponent(`${token}.${signature}`)}` };
   } catch {
     // 作成失敗時も、ライブラリ例外に含まれ得るテスト用セッション値を出力しない。
     throw new Error("検証用の管理者とセッションを準備できませんでした。");
@@ -417,7 +417,7 @@ describe("手動記録・訂正・利用停止の共通排他", () => {
     expect(stored.version).toBe(open.version + 1);
   });
 
-  it("誤記録の取消で在室を解消し、別の在室と重なる取消解除を拒否する", async () => {
+  it("誤記録の取消で在室を解消し、取消した記録の再有効化を拒否する", async () => {
     const admin = await administrator();
     const reception = await device();
     const person = await fixture();
@@ -428,7 +428,7 @@ describe("手動記録・訂正・利用停止の共通排他", () => {
     expect(canceled.canceledAt).not.toBeNull();
     expect(await db.attendanceVisit.count({ where: { personId: person.person.id, canceledAt: null, exitedAt: null } })).toBe(0);
     expect((await attempt(reception.actor, person.qr)).result.body.outcome).toBe("RECORDED");
-    expect((await errorResult(() => correctAttendanceVisit(db, admin.actor, { ...correction, expectedVersion: canceled.version, cancel: false, reason: "重なる取消解除の検証" })))?.code).toBe("VISIT_OVERLAP");
+    expect((await errorResult(() => correctAttendanceVisit(db, admin.actor, { ...correction, expectedVersion: canceled.version, cancel: false, reason: "取消解除の検証" })))?.code).toBe("VISIT_CANCELED");
     expect(await db.attendanceVisit.count({ where: { personId: person.person.id, canceledAt: null, exitedAt: null } })).toBe(1);
     expect((await db.attendanceVisit.findUniqueOrThrow({ where: { id: visit.id } })).version).toBe(canceled.version);
   });

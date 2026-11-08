@@ -1,16 +1,18 @@
 import { createHash, randomUUID } from "node:crypto";
 import {
   attendanceRecordInputSchema, attendanceResultSchema, correctVisitInputSchema, manualVisitInputSchema,
+  visitDtoSchema,
   type AttendanceRecordInput, type AttendanceResult, type AttendanceTicket, type AttendanceRequestResult,
   type ManualVisitInput, type CorrectVisitInput,
 } from "@mame/contracts";
 import type { Prisma } from "./generated/prisma/client.js";
 import type { Database } from "./db.js";
 import { AttendanceError, assertVisitTimes, attendanceOutcome, facilityDateTime, intervalsOverlap } from "./attendance-rules.js";
+import { assertAdministrator, type AdminActor } from "./identity.js";
 
 export { AttendanceError } from "./attendance-rules.js";
 export type ReceptionActor = { deviceId: string; credentialId: string };
-export type AdminActor = { userId: string };
+export type { AdminActor } from "./identity.js";
 type Tx = Prisma.TransactionClient;
 type Visit = { id: string; personId: string; enteredAt: Date; exitedAt: Date | null; canceledAt: Date | null; version: number };
 export type VisitDto = { id: string; personId: string; enteredAt: string; exitedAt: string | null; canceledAt: string | null; version: number };
@@ -48,8 +50,8 @@ async function lockReception(tx: Tx, actor: ReceptionActor) {
 }
 
 async function lockAdmin(tx: Tx, actor: AdminActor): Promise<void> {
-  const rows = await tx.$queryRaw<{ role: string; status: string }[]>`SELECT role, status FROM "User" WHERE id = ${actor.userId} FOR SHARE`;
-  if (rows[0]?.role !== "ADMIN" || rows[0]?.status !== "ACTIVE") throw new AttendanceError("FORBIDDEN", 403, "管理者の権限が必要です。");
+  // HTTPでの検査後に失効や期限切れが起きても、書き込みTxの中で拒否する。
+  await assertAdministrator(tx, actor);
 }
 
 async function lockPerson(tx: Tx, personId: string) {
@@ -57,7 +59,7 @@ async function lockPerson(tx: Tx, personId: string) {
   // 通常受付・手動追加・訂正・停止が必ずこの親行を共有し、別端末からの変更も直列化する。
   await tx.$queryRaw`SELECT id FROM "Person" WHERE id = ${personId}::uuid FOR UPDATE`;
   const person = await tx.person.findUnique({ where: { id: personId } });
-  if (!person) throw new AttendanceError("PERSON_NOT_FOUND", 404, "対象の利用者が見つかりません。");
+  if (!person || person.facilityId !== 1) throw new AttendanceError("PERSON_NOT_FOUND", 404, "対象の利用者が見つかりません。");
   return person;
 }
 
@@ -218,20 +220,44 @@ export async function createManualVisit(db: Database, admin: AdminActor, input: 
   const parsed = manualVisitInputSchema.safeParse(input);
   if (!parsed.success) throw new AttendanceError("INVALID_INPUT", 422, "対象・日時・訂正理由を確認してください。");
   const value = parsed.data;
-  return db.$transaction(async (tx) => {
+  try { return await db.$transaction(async (tx) => {
     await lockAdmin(tx, admin);
     const person = await lockPerson(tx, value.personId);
+    await lockAdmin(tx, admin);
+    const enteredAt = new Date(value.enteredAt), exitedAt = value.exitedAt === null ? null : new Date(value.exitedAt);
+    if (value.requestId) {
+      // 最初の変更履歴は追記専用なので、訂正後も最初に確定した応答と本文を照合できる。
+      const previous = await tx.attendanceVisit.findUnique({ where: { id: value.requestId } });
+      if (previous) {
+        if (previous.source !== "MANUAL" || previous.createdByUserId !== admin.userId || previous.personId !== person.id) {
+          throw new AttendanceError("REQUEST_CONFLICT", 409, "同じ追加要求に別の内容は送信できません。履歴を確認してください。");
+        }
+        const original = await tx.attendanceRevision.findFirst({ where: { visitId: previous.id, before: { equals: { state: "absent" } } }, orderBy: [{ createdAt: "asc" }, { id: "asc" }] });
+        const response = visitDtoSchema.safeParse(original?.after);
+        if (!original || !response.success || response.data.id !== previous.id || response.data.personId !== person.id || response.data.version !== 1 || response.data.canceledAt !== null) {
+          throw new AttendanceError("UNAVAILABLE", 503, "最初の追加結果を確認できません。履歴を確認してください。");
+        }
+        if (original.actorUserId !== admin.userId || original.reason !== value.reason || response.data.enteredAt !== enteredAt.toISOString() || response.data.exitedAt !== (exitedAt?.toISOString() ?? null)) {
+          throw new AttendanceError("REQUEST_CONFLICT", 409, "同じ追加要求に別の内容は送信できません。履歴を確認してください。");
+        }
+        return response.data;
+      }
+    }
     if (person.status !== "ACTIVE") throw new AttendanceError("PERSON_UNAVAILABLE", 409, "停止・削除済みの利用者には記録を追加できません。");
     const now = await clock(tx);
-    const enteredAt = new Date(value.enteredAt), exitedAt = value.exitedAt === null ? null : new Date(value.exitedAt);
     assertVisitTimes(enteredAt, exitedAt, now);
     await assertNoOverlap(tx, person.id, enteredAt, exitedAt);
-    const visit = await tx.attendanceVisit.create({ data: { personId: person.id, enteredAt, exitedAt, source: "MANUAL", createdByUserId: admin.userId } });
+    const visit = await tx.attendanceVisit.create({ data: { ...(value.requestId ? { id: value.requestId } : {}), personId: person.id, enteredAt, exitedAt, source: "MANUAL", createdByUserId: admin.userId } });
     const after = visitDto(visit);
     await tx.attendanceRevision.create({ data: { visitId: visit.id, actorUserId: admin.userId, reason: value.reason, before: { state: "absent" }, after: json(after) } });
     await tx.auditEvent.create({ data: { action: "VISIT_CREATED_MANUALLY", actorType: "ADMIN", actorUserId: admin.userId, personId: person.id, visitId: visit.id, details: { version: visit.version } } });
     return after;
-  }, transactionOptions);
+  }, transactionOptions); }
+  catch (error) {
+    // 別の利用者・管理者が同じIDを同時に確定しても、DBの一意制約を安全な競合応答へ変える。
+    if ((error as { code?: unknown }).code === "P2002") throw new AttendanceError("REQUEST_CONFLICT", 409, "同じ追加要求に別の内容は送信できません。履歴を確認してください。");
+    throw error;
+  }
 }
 
 export async function correctAttendanceVisit(db: Database, admin: AdminActor, input: CorrectVisitInput): Promise<VisitDto> {
@@ -243,10 +269,12 @@ export async function correctAttendanceVisit(db: Database, admin: AdminActor, in
     const candidate = await tx.attendanceVisit.findUnique({ where: { id: value.visitId } });
     if (!candidate) throw new AttendanceError("VISIT_NOT_FOUND", 404, "対象の在室記録が見つかりません。");
     const person = await lockPerson(tx, candidate.personId);
+    await lockAdmin(tx, admin);
     const visit = await tx.attendanceVisit.findUnique({ where: { id: candidate.id } });
     if (!visit) throw new AttendanceError("VISIT_NOT_FOUND", 404, "対象の在室記録が見つかりません。");
     if (visit.personId !== person.id) throw new AttendanceError("VERSION_CONFLICT", 409, "記録の対象が更新されています。最新の状態を確認してください。");
     if (visit.version !== value.expectedVersion) throw new AttendanceError("VERSION_CONFLICT", 409, "ほかの操作で記録が更新されています。最新の状態を確認してください。");
+    if (visit.canceledAt) throw new AttendanceError("VISIT_CANCELED", 409, "取消済みの記録は変更できません。必要な場合は理由を付けて新しく記録を追加してください。");
     const now = await clock(tx);
     const enteredAt = new Date(value.enteredAt), exitedAt = value.exitedAt === null ? null : new Date(value.exitedAt);
     assertVisitTimes(enteredAt, exitedAt, now);
@@ -268,6 +296,7 @@ export async function suspendPerson(db: Database, admin: AdminActor, personId: s
   await db.$transaction(async (tx) => {
     await lockAdmin(tx, admin);
     const person = await lockPerson(tx, personId);
+    await lockAdmin(tx, admin);
     if (await tx.attendanceVisit.findFirst({ where: { personId: person.id, exitedAt: null, canceledAt: null } })) {
       throw new AttendanceError("PERSON_INSIDE", 409, "入室中のため利用停止できません。退室補正か誤記録の取消を先に行ってください。");
     }

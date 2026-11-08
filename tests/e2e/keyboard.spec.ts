@@ -21,12 +21,18 @@ test("初回読込はフォーカスを奪わず、登録フォームをキー�
 
 test("失敗・状態再確認・ログアウトの結果から次の操作へTabで進める", async ({ page }) => {
   let authenticated = false;
+  let signedOut = false;
+  let finishLogoutStatus!: () => void;
+  const logoutStatus = new Promise<void>((resolve) => { finishLogoutStatus = resolve; });
   await page.route("**/api/admin/me", (route) => authenticated
     ? route.fulfill({ json: { user: { id: "keyboard-check", name: "動作確認の管理者", email: "demo@example.test", emailVerified: false }, database: "connected" } })
     : route.fulfill({ status: 401, json: { code: "UNAUTHENTICATED" } }));
-  await page.route("**/api/setup/status", (route) => route.fulfill({ json: { completed: true } }));
+  await page.route("**/api/setup/status", async (route) => {
+    if (signedOut) await logoutStatus;
+    await route.fulfill({ json: { completed: true } });
+  });
   await page.route("**/api/auth/passkey/generate-authenticate-options", (route) => route.fulfill({ status: 503, json: { code: "UNAVAILABLE" } }));
-  await page.route("**/api/auth/sign-out", (route) => { authenticated = false; return route.fulfill({ json: { ok: true } }); });
+  await page.route("**/api/auth/sign-out", (route) => { authenticated = false; signedOut = true; return route.fulfill({ json: { ok: true } }); });
   await page.goto("/");
   const login = page.getByRole("button", { name: "パスキーでログイン", exact: true });
   await expect(login).toBeVisible();
@@ -54,6 +60,13 @@ test("失敗・状態再確認・ログアウトの結果から次の操作へTa
   await page.getByRole("button", { name: "ログアウト", exact: true }).focus();
   await page.keyboard.press("Enter");
   await expect(page.getByRole("heading", { name: "パスキーでログイン", exact: true })).toBeVisible();
+  // 見出しは読込中にも表示されるため、状態取得を保留してボタン未表示の段階を確実に通す。
+  await expect(page.locator(".auth-panel")).toHaveAttribute("aria-busy", "true");
+  await expect(login).toHaveCount(0);
+  finishLogoutStatus();
+  // 実際に操作できる状態からTab順を検査し、応答速度による成功・失敗を防ぐ。
+  await expect(login).toBeVisible();
+  await expect(login).toBeEnabled();
   await page.getByRole("link", { name: "本文へ移動", exact: true }).focus();
   await page.keyboard.press("Tab");
   await expect(login).toBeFocused();

@@ -1,0 +1,60 @@
+name: CI
+on:
+  # developのpushでは重複実行せず、main向けPRと取り込み後のmainを検査する。
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+permissions:
+  contents: read
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      APP_ORIGIN: http://localhost:8081
+      HTTP_PORT: "8081"
+      E2E_ORIGIN: http://localhost:8081
+      NEXT_TELEMETRY_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: 依存関係の既知の重大な脆弱性を確認
+        # APIイメージにはビルド時の依存も含むため、開発依存を検査から除外しない。
+        run: npm audit --audit-level=high
+      - run: npm run generate && npm run build -w @mame/contracts
+      - run: npm run typecheck && npm run lint && npm test && npm run build
+      - name: 保管・復元の失敗と再実行を確認
+        run: python3 -B tests/operations_test.py
+      - name: 性能検査が対象外の環境を拒否することを確認
+        run: node --test tests/performance/m07-guards.test.mjs
+      - name: 使い捨てDBとサービス別の秘密を準備
+        run: |
+          npm run dev:setup
+          sudo chown -R 1000:1000 secrets
+          docker compose -p mame-inout-test -f compose.yaml -f compose.test.yaml build api web tests
+      - name: 実PostgreSQLで認可・権限・競合を確認
+        run: docker compose -p mame-inout-test -f compose.yaml -f compose.test.yaml run --rm tests
+      - name: ブラウザ検証の準備
+        run: |
+          docker compose -p mame-inout-test up -d --wait api web proxy
+          docker compose -p mame-inout-test exec -T api node dist/setup-code.js /tmp/e2e-setup-code
+          sudo chown "$(id -u):$(id -g)" secrets
+          umask 077
+          docker compose -p mame-inout-test exec -T api cat /tmp/e2e-setup-code > secrets/e2e-setup-code
+          npx playwright install --with-deps chromium
+      - name: 実認証・受付・管理画面を工程別に確認
+        run: npm run test:e2e
+      - name: テスト用コンテナの停止
+        if: always()
+        # このジョブだけの使い捨てプロジェクトに限定する。
+        run: docker compose -p mame-inout-test -f compose.yaml -f compose.test.yaml down --volumes

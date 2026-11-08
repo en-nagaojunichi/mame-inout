@@ -1,0 +1,12 @@
+services:
+  proxy:
+    ports: !override ["80:80", "443:443"]
+    environment:
+      APP_HOST: ${APP_HOST:?HTTPSのホスト名を指定してください}
+    volumes:
+      - ./infra/Caddyfile.https:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+volumes:
+  caddy_data:
+  caddy_config:

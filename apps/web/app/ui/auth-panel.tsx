@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { adminResponseSchema, recoveryCodesResponseSchema, type AdminResponse } from "@mame/contracts";
 import { api, authClient } from "./client-api";
 import { RecoveryCodesModal } from "./recovery-codes-modal";
@@ -20,6 +21,7 @@ async function loadState(): Promise<{ stage: Stage; admin: AdminResponse | null 
 }
 
 export function AuthPanel() {
+  const router = useRouter();
   const [stage, setStage] = useState<Stage>("loading");
   const [admin, setAdmin] = useState<AdminResponse | null>(null);
   const [busy, setBusy] = useState(false);
@@ -44,6 +46,11 @@ export function AuthPanel() {
       .catch(() => { if (active) { setStage("unavailable"); setMessage("接続できませんでした。通信状況を確認して再確認してください。"); } });
     return () => { active = false; };
   }, []);
+
+  useEffect(() => {
+    // 初回登録の復旧コードを保存する前や、発行失敗の案内中には画面を離れない。
+    if (stage === "ready" && !busy && codes === null && !message) router.replace("/admin");
+  }, [stage, busy, codes, message, router]);
 
   useEffect(() => {
     if (!completedAction || completedAction.moved) return;
@@ -102,8 +109,8 @@ export function AuthPanel() {
 
   return <section className="auth-panel" aria-busy={busy || stage === "loading"}>
     <p className="eyebrow">管理者のアクセス</p>
-    <h1 ref={headingRef} tabIndex={-1} aria-live="polite" aria-atomic="true">{stage === "setup" ? "最初の管理者を登録" : stage === "ready" ? "接続を確認できました" : "パスキーでログイン"}</h1>
-    <p className="intro">{stage === "setup" ? "名簿や設定を管理する方の登録です。サーバー管理者から受け取った設定コードを入力し、ご自身の端末にパスキーを登録します。" : stage === "ready" ? "管理者としてログインしています。パスキーの管理や、QR受付に使う端末の承認は「管理者の設定」から行います。共有端末では、操作後にログアウトしてください。" : "名簿や設定を管理する方のログインです。入口のスマホ・タブレットを準備する方は、下の「QR受付に使う端末を登録」へ進んでください。"}</p>
+    <h1 ref={headingRef} tabIndex={-1} aria-live="polite" aria-atomic="true">{stage === "setup" ? "最初の管理者を登録" : stage === "ready" ? "管理者としてログインしました" : "パスキーでログイン"}</h1>
+    <p className="intro">{stage === "setup" ? "名簿や設定を管理する方の登録です。サーバー管理者から受け取った設定コードを入力し、ご自身の端末にパスキーを登録します。" : stage === "ready" ? "管理ホームから、利用者の登録やQR受付端末の承認へ進めます。" : "名簿や設定を管理する方のログインです。入口のスマホ・タブレットを準備する方は、下の「QR受付に使う端末を登録」へ進んでください。"}</p>
 
     {message && <div ref={messageRef} tabIndex={-1} className={`notice ${noticeKind}`} role={noticeKind === "error" ? "alert" : "status"}>{message}</div>}
     {message && noticeKind === "error" && stage !== "unavailable" && <button className="secondary" disabled={busy} onClick={() => void run(refresh)}>状態を再確認</button>}
@@ -131,13 +138,8 @@ export function AuthPanel() {
       <Link className="text-link" href="/recover">パスキーを使えない場合</Link>
     </div>}
     {stage === "ready" && admin && <>
-      <dl className="account-details"><div><dt>管理者</dt><dd>{admin.user.name}</dd></div><div><dt>メールアドレス</dt><dd>{admin.user.email}<span className="small-label">{admin.user.emailVerified ? "確認済み" : "未確認"}</span></dd></div><div><dt>接続の状態</dt><dd><span className="status-dot" aria-hidden="true" />認証済みの接続を確認</dd></div></dl>
-      <div className="actions"><button className="secondary" disabled={busy} onClick={() => void run(async () => {
-        const result = await authClient.signOut();
-        if (result.error) throw new Error("ログアウトの完了を確認できません。通信状況を確認して再度お試しください。");
-        await refresh();
-        setNoticeKind("success"); setMessage("ログアウトしました。");
-      })}>{busy ? "処理しています…" : "ログアウト"}</button><Link className="text-link" href="/settings">管理者の設定</Link></div>
+      <p>{admin.user.name}さんとしてログインしています。</p>
+      <Link className="button-link" href="/admin">管理ホームへ</Link>
     </>}
     {busy && <p className="field-help" role="status">端末に表示される案内を確認してください。</p>}
     <RecoveryCodesModal codes={codes} onClose={() => { setCodes(null); requestAnimationFrame(() => headingRef.current?.focus()); }} />

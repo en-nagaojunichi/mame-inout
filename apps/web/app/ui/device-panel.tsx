@@ -68,7 +68,7 @@ export function DevicePanel() {
     {!claimed && <>
       <ol className="step-list">
         <li>この端末で登録を申請する</li>
-        <li>管理者が、このサイトの「管理者の設定」で承認する</li>
+        <li>管理者が、このサイトの「QR受付端末」で承認する</li>
         <li>この端末で利用を開始する</li>
       </ol>
       <p className="field-help">申請したブラウザのまま、10分以内に利用開始まで進めてください。</p>
@@ -78,7 +78,7 @@ export function DevicePanel() {
       <h2>{device.name}</h2><p className="status-label">{claimed ? "このブラウザで登録済みです" : statusLabels[device.status]}</p>
       {device.status === "PENDING" && <>
         <p>管理者に、端末名と以下の確認コードを見せてください。</p>
-        <p>管理者の方は、<Link className="text-link" href="/settings">このサイトの「管理者の設定」</Link>で端末の一覧を更新し、名前と確認コードが同じ申請を承認してください。</p>
+        <p>管理者の方は、<Link className="text-link" href="/settings/devices">このサイトの「QR受付端末」</Link>で端末の一覧を更新し、名前と確認コードが同じ申請を承認してください。</p>
         <p className="code-value device-code" aria-label={`確認コード ${device.confirmationCode ?? ""}`}>{device.confirmationCode}</p>
         <p className="field-help">申請の期限：{dateLabel(device.applicationExpiresAt)}。このブラウザを閉じずにお待ちください。</p>
         <button disabled={busy} onClick={() => void run(load)}>承認の状態を確認</button>
@@ -90,7 +90,7 @@ export function DevicePanel() {
           setClaimed(true); setMessage("受付端末の登録が完了しました。このブラウザを受付に使用してください。");
         })}>このブラウザで利用を開始</button>
       </>}
-      {claimed && <><p>有効期限：{dateLabel(device.expiresAt)}</p><p className="field-help">QRを読み取る受付画面は準備中です。現在は、この端末の登録まで確認できます。</p><button className="secondary" disabled={busy} onClick={() => void run(load)}>登録の状態を再確認</button></>}
+      {claimed && <><p>有効期限：{dateLabel(device.expiresAt)}</p><p>登録したこのブラウザでQR受付を開始できます。</p><div className="inline-actions"><Link className="text-link" href="/reception">QR受付を開く</Link><button className="secondary" disabled={busy} onClick={() => void run(load)}>登録の状態を再確認</button></div></>}
       {["REJECTED", "REVOKED", "EXPIRED"].includes(device.status) && <><p>管理者に確認してください。登録をやり直す場合は新しく申請します。</p><button className="secondary" disabled={busy} onClick={() => { setApplication(null); setClaimed(false); setMessage(""); }}>もう一度申請する</button></>}
     </div> : <form className="settings-section compact-form" onSubmit={apply}>
       <label htmlFor="device-name">端末名</label><input id="device-name" value={name} onChange={(event) => setName(event.target.value)} maxLength={100} required disabled={busy} placeholder="例：入口の受付スマートフォン" />

@@ -1,9 +1,10 @@
 import { readFile } from "node:fs/promises";
 import { test, expect } from "@playwright/test";
 import { cookieMetadata, cookieName, maskSecretDisplays } from "./secret-displays";
+import { runPeopleReceptionFlow } from "./people-reception-flow";
 
 test("初期登録からパスキーログイン・ログアウトまで", async ({ page, context, browser, baseURL }, testInfo) => {
-  test.setTimeout(120_000);
+  test.setTimeout(180_000);
   const issued = await maskSecretDisplays(page);
   const cdp = await context.newCDPSession(page);
   const registrationIds = new Set<string>();
@@ -52,8 +53,7 @@ test("初期登録からパスキーログイン・ログアウトまで", async
   if (!initialCodes || initialCodes.length !== 8) throw new Error("初期登録後の復旧コード発行を確認できませんでした。");
   await expect(page.getByRole("dialog", { name: "復旧コードを保存" })).toBeVisible();
   await page.getByRole("button", { name: "保存したので閉じる", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "接続を確認できました" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "接続を確認できました" })).toBeFocused();
+  await expect(page.getByRole("heading", { name: "管理ホーム", exact: true })).toBeVisible();
   expect((await context.request.get("/api/admin/me")).status()).toBe(200);
   expect((await context.request.get("/api/admin/me")).headers()["cache-control"]).toBe("no-store");
   const me = await (await context.request.get("/api/admin/me")).json();
@@ -86,8 +86,7 @@ test("初期登録からパスキーログイン・ログアウトまで", async
   const authenticationRequest = page.waitForRequest((request) => request.url().endsWith("/passkey/verify-authentication"));
   await page.getByRole("button", { name: "パスキーでログイン", exact: true }).click();
   const authentication = await authenticationRequest;
-  await expect(page.getByRole("heading", { name: "接続を確認できました" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "接続を確認できました" })).toBeFocused();
+  await expect(page.getByRole("heading", { name: "管理ホーム", exact: true })).toBeVisible();
   expect((await context.request.post("/api/auth/passkey/verify-authentication", { headers: { Origin: baseURL! }, data: authentication.postDataJSON() })).status()).toBe(400);
   await page.getByRole("button", { name: "ログアウト", exact: true }).click();
   for (const invalid of ["uv", "signature", "origin", "rpid"]) {
@@ -142,9 +141,10 @@ test("初期登録からパスキーログイン・ログアウトまで", async
   expect((await context.request.post("/api/auth/passkey/verify-authentication", { headers: { Origin: baseURL!, Cookie: originalCookie }, data: originalPayload })).status()).toBe(400);
 
   await page.getByRole("button", { name: "パスキーでログイン", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "接続を確認できました" })).toBeVisible();
-  await page.getByRole("link", { name: "管理者の設定", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "管理者の設定", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "管理ホーム", exact: true })).toBeVisible();
+  await page.locator(".admin-mobile-menu > summary").click();
+  await page.getByRole("link", { name: "自分の設定", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "自分の設定", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "パスキーを追加", exact: true }).click();
   const addModal = page.getByRole("dialog", { name: "パスキーを追加", exact: true });
   await addModal.getByLabel("パスキーの名前", { exact: true }).fill("予備のパスキー");
@@ -165,6 +165,7 @@ test("初期登録からパスキーログイン・ログアウトまで", async
   await expect(renameModal).not.toBeVisible();
   await expect(page.getByRole("heading", { name: "持ち歩き用の予備", exact: true })).toBeVisible();
 
+  await page.goto("/settings/administrators");
   await page.getByRole("button", { name: "管理者を招待", exact: true }).click();
   const inviteModal = page.getByRole("dialog", { name: "管理者を招待", exact: true });
   await inviteModal.getByLabel("招待する方の表示名", { exact: true }).fill("招待された管理者");
@@ -187,7 +188,7 @@ test("初期登録からパスキーログイン・ログアウトまで", async
   await invitedPage.getByRole("button", { name: "新しいパスキーを登録", exact: true }).click();
   await expect(invitedPage.getByRole("dialog", { name: "復旧コードを保存", exact: true })).toBeVisible();
   await invitedPage.getByRole("button", { name: "保存したので閉じる", exact: true }).click();
-  await expect(invitedPage.getByRole("heading", { name: "管理者の設定", exact: true })).toBeVisible();
+  await expect(invitedPage.getByRole("heading", { name: "自分の設定", exact: true })).toBeVisible();
   expect((await invitedContext.request.get("/api/admin/me")).status()).toBe(200);
   expect((await (await invitedContext.request.get("/api/admin/security")).json()).admins.length).toBe(2);
   const usedInvitation = await browser.newContext({ baseURL });
@@ -221,7 +222,7 @@ test("初期登録からパスキーログイン・ログアウトまで", async
   await expect(recoveryPage.getByRole("dialog", { name: "復旧コードを保存", exact: true })).toBeVisible();
   expect(recoveryBegins).toBe(1);
   await recoveryPage.getByRole("button", { name: "保存したので閉じる", exact: true }).click();
-  await expect(recoveryPage.getByRole("heading", { name: "管理者の設定", exact: true })).toBeVisible();
+  await expect(recoveryPage.getByRole("heading", { name: "自分の設定", exact: true })).toBeVisible();
   expect((await recoveryContext.request.get("/api/admin/me")).status()).toBe(200);
   const recoveredSecurity = await (await recoveryContext.request.get("/api/admin/security")).json();
   expect(recoveredSecurity.passkeys.length).toBe(1);
@@ -240,5 +241,6 @@ test("初期登録からパスキーログイン・ログアウトまで", async
   await page.getByRole("button", { name: "パスキーでログイン", exact: true }).click();
   expect([400, 401]).toContain((await oldPasskeyResponse).status());
   expect((await context.request.get("/api/admin/me")).status()).toBe(401);
+  await runPeopleReceptionFlow(recoveryContext, browser, baseURL!);
   await recoveryContext.close();
 });

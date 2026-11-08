@@ -1,6 +1,8 @@
 import { SettingsPanel } from "../ui/settings-panel";
-import { WorkspaceShell } from "../ui/workspace-shell";
+import { AdminShell } from "../ui/admin-shell";
+
+export const metadata = { title: "自分の設定 | MameInOut" };
 
 export default function SettingsPage() {
-  return <WorkspaceShell label="管理者設定"><SettingsPanel /></WorkspaceShell>;
+  return <AdminShell><SettingsPanel section="account" /></AdminShell>;
 }

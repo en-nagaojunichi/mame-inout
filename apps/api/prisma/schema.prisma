@@ -177,6 +177,7 @@ model Person {
   affiliation   String?             @db.VarChar(100)
   code          String?             @db.VarChar(64)
   status        String              @default("ACTIVE") @db.VarChar(16)
+  version       Int                 @default(1)
   createdAt     DateTime            @default(now()) @db.Timestamptz
   updatedAt     DateTime            @default(now()) @updatedAt @db.Timestamptz
   facility      Facility            @relation(fields: [facilityId], references: [id], onDelete: Restrict)

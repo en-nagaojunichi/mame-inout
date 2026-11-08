@@ -8,11 +8,11 @@ export class ApiFailure extends Error {
   constructor(message: string, readonly status: number, readonly code?: string) { super(message); }
 }
 
-export async function api<T>(path: string, schema: z.ZodType<T>, body?: unknown): Promise<T> {
+export async function api<T>(path: string, schema: z.ZodType<T>, body?: unknown, method?: "GET" | "POST" | "PATCH" | "PUT" | "DELETE"): Promise<T> {
   let response: Response;
   try {
     response = await fetch(path, {
-      method: body === undefined ? "GET" : "POST", cache: "no-store",
+      method: method ?? (body === undefined ? "GET" : "POST"), cache: "no-store",
       headers: body === undefined ? undefined : { "Content-Type": "application/json" },
       body: body === undefined ? undefined : JSON.stringify(body),
     });

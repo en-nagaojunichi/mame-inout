@@ -1,0 +1,12 @@
+MameInOutのQR表示・読み取り機能では、次のライブラリを使用しています。
+
+qrcode 1.5.4
+https://github.com/soldair/node-qrcode
+Copyright (c) 2012 Ryan Day
+MIT License: qrcode-LICENSE.txt
+
+jsQR 1.4.0
+https://github.com/cozmo/jsQR
+Apache License 2.0: jsqr-LICENSE.txt
+
+ライブラリのライセンス本文と、配布コード内の著作権表示を保持しています。

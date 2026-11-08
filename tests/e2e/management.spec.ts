@@ -7,6 +7,7 @@ const device = {
 };
 
 async function mockSettings(page: Page, recentAuth = () => true, currentUserId = () => "demo-admin", names = () => ({ admin: "動作確認の管理者", device: device.name })) {
+  await page.route("**/api/admin/me", (route) => route.fulfill({ json: { user: { id: currentUserId(), name: names().admin, email: "demo@example.test", emailVerified: false }, database: "connected" } }));
   await page.route("**/api/admin/security", (route) => route.fulfill({ json: {
     currentUserId: currentUserId(), recoveryConfigured: true, recentAuth: recentAuth(),
     passkeys: [{ id: "first", name: "個人のスマートフォン", createdAt, lastUsedAt: createdAt }, { id: "second", name: "予備のパスキー", createdAt, lastUsedAt: null }],
@@ -44,7 +45,7 @@ async function mockPasskeyAuthentication(page: Page, onVerified?: () => void) {
 test("管理設定の確認をモーダルで示し、Tab・Escape・フォーカス復帰を守る", async ({ page }) => {
   await mockSettings(page);
   await page.goto("/settings");
-  await expect(page.getByRole("heading", { name: "管理者の設定", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "自分の設定", exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "パスキー", exact: true })).toBeVisible();
   const rename = page.getByRole("button", { name: /名前を変更.*個人のスマートフォン/ });
   await rename.click();
@@ -58,6 +59,7 @@ test("管理設定の確認をモーダルで示し、Tab・Escape・フォー�
   await page.keyboard.press("Escape");
   await expect(modal).not.toBeVisible();
   await expect(rename).toBeFocused();
+  await page.goto("/settings/devices");
   await page.getByRole("button", { name: /承認.*入口の受付スマートフォン/ }).click();
   const approval = page.getByRole("dialog", { name: "受付端末を承認" });
   await expect(approval.getByText("1A2B3C4D", { exact: true })).toBeVisible();
@@ -77,7 +79,7 @@ test("直近に本人確認した管理者は、受付端末を承認すると�
     approvalPosts++;
     return route.fulfill({ json: { ok: true } });
   });
-  await page.goto("/settings");
+  await page.goto("/settings/devices");
   await page.getByRole("button", { name: /承認.*入口の受付スマートフォン/ }).click();
   const modal = page.getByRole("dialog", { name: "受付端末を承認" });
   await modal.getByRole("button", { name: "承認", exact: true }).click();
@@ -95,7 +97,7 @@ test("本人確認の期限が切れている場合は、パスキーで本人�
     approvalPosts++;
     return route.fulfill({ json: { ok: true } });
   });
-  await page.goto("/settings");
+  await page.goto("/settings/devices");
   await page.getByRole("button", { name: /承認.*入口の受付スマートフォン/ }).click();
   const modal = page.getByRole("dialog", { name: "受付端末を承認" });
   await modal.getByRole("button", { name: "本人確認して承認", exact: true }).click();
@@ -117,7 +119,7 @@ test("承認直前の本人確認期限切れでは自動再送せず、認証�
     }
     return route.fulfill({ json: { ok: true } });
   });
-  await page.goto("/settings");
+  await page.goto("/settings/devices");
   await page.getByRole("button", { name: /承認.*入口の受付スマートフォン/ }).click();
   const modal = page.getByRole("dialog", { name: "受付端末を承認" });
   await modal.getByLabel("有効期間（日）").fill("7");
@@ -151,7 +153,7 @@ test("設定表示後に本人確認が期限切れになった場合、パス�
     approvalPosts++;
     return route.fulfill({ json: { ok: true } });
   });
-  await page.goto("/settings");
+  await page.goto("/settings/devices");
   await page.getByRole("button", { name: /承認.*入口の受付スマートフォン/ }).click();
   const modal = page.getByRole("dialog", { name: "受付端末を承認" });
   await expect(modal.getByRole("button", { name: "承認", exact: true })).toBeEnabled();
@@ -179,7 +181,7 @@ test("本人確認後に別の管理者へ変わった場合、元の確認内�
     approvalPosts++;
     return route.fulfill({ json: { ok: true } });
   });
-  await page.goto("/settings");
+  await page.goto("/settings/devices");
   await page.getByRole("button", { name: /承認.*入口の受付スマートフォン/ }).click();
   const modal = page.getByRole("dialog", { name: "受付端末を承認" });
   await modal.getByRole("button", { name: "本人確認して承認", exact: true }).click();
@@ -211,7 +213,7 @@ for (const target of [
       names[target.key] = target.after;
       return route.fulfill({ json: { ok: true } });
     });
-    await page.goto("/settings");
+    await page.goto(target.key === "admin" ? "/settings/administrators" : "/settings/devices");
     const rename = page.getByRole("button", { name: new RegExp(`名前を変更.*${target.before}`) });
     await rename.click();
     const modal = page.getByRole("dialog", { name: target.title, exact: true });

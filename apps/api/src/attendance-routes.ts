@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import {
   attendanceHistoryResponseSchema, attendanceQuerySchema, attendanceRecordInputSchema, attendanceResultSchema,
   attendanceRequestResultSchema, attendanceTicketSchema, emptyRequestSchema,
-  facilityResponseSchema, pageQuerySchema, peopleResponseSchema, presenceResponseSchema,
+  facilityResponseSchema, pageQuerySchema, presenceResponseSchema,
 } from "@mame/contracts";
 import { z } from "zod";
 import type { Database } from "./db.js";
@@ -11,7 +11,6 @@ import { AttendanceError, getAttendanceRequest, issueAttendanceRequest, recordAt
 import { allowAttempt } from "./rate-limit.js";
 
 const invalidInput = () => new AttendanceError("INVALID_INPUT", 422, "入力内容を確認して、もう一度お試しください。");
-const personFields = { id: true, displayName: true, phoneticName: true, affiliation: true, code: true, status: true } as const;
 const visitPersonFields = { id: true, displayName: true, affiliation: true } as const;
 const page = <T extends { id: string }>(rows: T[], limit: number) => ({ items: rows.slice(0, limit), nextCursor: rows.length > limit ? rows[limit - 1]!.id : null });
 
@@ -21,15 +20,6 @@ export function createAttendanceRoutes(db: Database, access: Authorization) {
     await access.admin(c);
     const facility = await db.facility.findUniqueOrThrow({ where: { id: 1 }, select: { id: true, name: true, timeZone: true } });
     return c.json(facilityResponseSchema.parse(facility));
-  });
-  routes.get("/api/admin/people", async (c) => {
-    await access.admin(c);
-    const query = pageQuerySchema.safeParse(c.req.query());
-    if (!query.success) throw invalidInput();
-    const { limit, cursor } = query.data;
-    // 一覧の上限をサーバーで固定し、QR資格や認証資格の列は取得しない。
-    const people = await db.person.findMany({ where: { facilityId: 1, ...(cursor ? { id: { gt: cursor } } : {}) }, select: personFields, orderBy: { id: "asc" }, take: limit + 1 });
-    return c.json(peopleResponseSchema.parse(page(people, limit)));
   });
   routes.get("/api/admin/presence", async (c) => {
     await access.admin(c);

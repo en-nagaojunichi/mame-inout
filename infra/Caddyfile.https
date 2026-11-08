@@ -16,6 +16,7 @@
         Strict-Transport-Security "max-age=31536000"
         X-Content-Type-Options nosniff
         Referrer-Policy no-referrer
-        Permissions-Policy "camera=(), microphone=(), geolocation=()"
+        # QR受付のカメラは同じサイトだけに許可し、音声・位置情報は許可しない。
+        Permissions-Policy "camera=(self), microphone=(), geolocation=()"
     }
 }

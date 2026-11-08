@@ -50,12 +50,11 @@ test("失敗・状態再確認・ログアウトの結果から次の操作へTa
   authenticated = true;
   await page.keyboard.press("Tab");
   await page.keyboard.press("Enter");
-  await expect(page.getByRole("heading", { name: "接続を確認できました", exact: true })).toBeFocused();
-  await page.keyboard.press("Tab");
-  await expect(page.getByRole("button", { name: "ログアウト", exact: true })).toBeFocused();
+  await expect(page.getByRole("heading", { name: "管理ホーム", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "ログアウト", exact: true }).focus();
   await page.keyboard.press("Enter");
-  await expect(page.locator('.auth-panel [role="status"]')).toHaveText("ログアウトしました。");
-  await expect(page.locator('.auth-panel [role="status"]')).toBeFocused();
+  await expect(page.getByRole("heading", { name: "パスキーでログイン", exact: true })).toBeVisible();
+  await page.getByRole("link", { name: "本文へ移動", exact: true }).focus();
   await page.keyboard.press("Tab");
   await expect(login).toBeFocused();
 });

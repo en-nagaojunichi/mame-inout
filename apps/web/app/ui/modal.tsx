@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useRef, type ReactNode } from "react";
+import { useEffect, useId, useRef, type ReactNode, type RefObject } from "react";
 
 type ModalProps = {
   open: boolean;
@@ -8,10 +8,11 @@ type ModalProps = {
   description: string;
   busy?: boolean;
   onClose: () => void;
+  returnFocusRef?: RefObject<HTMLElement | null>;
   children: ReactNode;
 };
 
-export function Modal({ open, title, description, busy = false, onClose, children }: ModalProps) {
+export function Modal({ open, title, description, busy = false, onClose, returnFocusRef, children }: ModalProps) {
   const dialog = useRef<HTMLDialogElement>(null);
   const titleId = useId();
   const descriptionId = useId();
@@ -19,7 +20,8 @@ export function Modal({ open, title, description, busy = false, onClose, childre
   useEffect(() => {
     const element = dialog.current;
     if (!open || !element) return;
-    const opener = document.activeElement;
+    // 非同期の準備で元ボタンが無効になった場合も、呼出元が保存した操作位置へ戻す。
+    const opener = returnFocusRef?.current ?? document.activeElement;
     // 背景を操作不可にし、確認が終わるまでTab移動をダイアログ内へ留める。
     element.showModal();
     element.querySelector<HTMLElement>("[data-modal-initial]")?.focus();
@@ -27,7 +29,7 @@ export function Modal({ open, title, description, busy = false, onClose, childre
       element.close();
       if (opener instanceof HTMLElement && opener.isConnected) opener.focus();
     };
-  }, [open]);
+  }, [open, returnFocusRef]);
 
   useEffect(() => {
     if (open) dialog.current?.querySelector<HTMLElement>("[data-modal-initial]")?.focus();

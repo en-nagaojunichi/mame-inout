@@ -274,7 +274,7 @@ export async function suspendPerson(db: Database, admin: AdminActor, personId: s
     if (person.status === "DELETED") throw new AttendanceError("PERSON_UNAVAILABLE", 409, "削除済みの利用者は変更できません。");
     if (person.status === "SUSPENDED") return;
     const now = await clock(tx);
-    await tx.person.update({ where: { id: person.id }, data: { status: "SUSPENDED" } });
+    await tx.person.update({ where: { id: person.id }, data: { status: "SUSPENDED", version: { increment: 1 } } });
     await tx.qrCredential.updateMany({ where: { personId: person.id, revokedAt: null }, data: { revokedAt: now } });
     await tx.auditEvent.create({ data: { action: "PERSON_SUSPENDED", actorType: "ADMIN", actorUserId: admin.userId, personId: person.id, details: { status: "SUSPENDED" } } });
   }, transactionOptions);

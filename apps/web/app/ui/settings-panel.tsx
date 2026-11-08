@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { devicesResponseSchema, securityResponseSchema, invitationResponseSchema, recoveryCodesResponseSchema, mutationResponseSchema, type SecurityResponse, type DeviceSummary, type DevicesResponse } from "@mame/contracts";
+import { adminResponseSchema, devicesResponseSchema, securityResponseSchema, invitationResponseSchema, recoveryCodesResponseSchema, mutationResponseSchema, type AdminResponse, type SecurityResponse, type DeviceSummary, type DevicesResponse } from "@mame/contracts";
 import { api, ApiFailure, authClient, dateLabel, requirePasskey } from "./client-api";
 import { Modal } from "./modal";
 
@@ -11,8 +11,9 @@ type ManagedAdmin = SecurityResponse["admins"][number];
 type Action = { kind: "add" | "recovery" | "invite" } | { kind: "rename" | "revoke"; passkey: ManagedPasskey } | { kind: "approve" | "reject" | "device-revoke" | "device-rename"; device: DeviceSummary } | { kind: "disable" | "admin-rename"; admin: ManagedAdmin } | { kind: "codes"; codes: string[] } | { kind: "invitation"; code: string; expiresAt: string };
 const deviceLabels = { PENDING: "承認待ち", APPROVED: "承認済み", REJECTED: "拒否", REVOKED: "失効", EXPIRED: "期限切れ" };
 
-export function SettingsPanel() {
+export function SettingsPanel({ section = "account" }: { section?: "account" | "administrators" | "devices" }) {
   const [security, setSecurity] = useState<SecurityResponse | null>(null);
+  const [profile, setProfile] = useState<AdminResponse | null>(null);
   const [devices, setDevices] = useState<DevicesResponse>({ items: [], nextCursor: null });
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -27,20 +28,21 @@ export function SettingsPanel() {
   const notice = useRef<HTMLDivElement>(null);
 
   async function load() {
-    const [identity, registered] = await Promise.all([
-      api("/api/admin/security", securityResponseSchema), api("/api/admin/devices", devicesResponseSchema),
+    const [identity, registered, ownProfile] = await Promise.all([
+      api("/api/admin/security", securityResponseSchema), section === "devices" ? api("/api/admin/devices", devicesResponseSchema) : Promise.resolve({ items: [], nextCursor: null }),
+      section === "account" ? api("/api/admin/me", adminResponseSchema) : Promise.resolve(null),
     ]);
-    setSecurity(identity); setDevices(registered); setAdminChanged(false);
+    setSecurity(identity); setDevices(registered); setProfile(ownProfile); setAdminChanged(false);
   }
 
   useEffect(() => {
     let active = true;
-    void Promise.all([api("/api/admin/security", securityResponseSchema), api("/api/admin/devices", devicesResponseSchema)])
-      .then(([identity, registered]) => { if (active) { setSecurity(identity); setDevices(registered); } })
+    void Promise.all([api("/api/admin/security", securityResponseSchema), section === "devices" ? api("/api/admin/devices", devicesResponseSchema) : Promise.resolve({ items: [], nextCursor: null }), section === "account" ? api("/api/admin/me", adminResponseSchema) : Promise.resolve(null)])
+      .then(([identity, registered, ownProfile]) => { if (active) { setSecurity(identity); setDevices(registered); setProfile(ownProfile); } })
       .catch((error: unknown) => { if (active) setMessage(error instanceof Error ? error.message : "設定を読み込めませんでした。"); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, []);
+  }, [section]);
 
   function open(next: Action) {
     const initialName = next.kind === "rename" ? next.passkey.name ?? "" : next.kind === "admin-rename" ? next.admin.name : next.kind === "device-rename" ? next.device.name : "";
@@ -134,16 +136,21 @@ export function SettingsPanel() {
 
   const dialog = describeAction(action);
   const needsAuthentication = action?.kind !== "admin-rename" && action?.kind !== "device-rename" && !security?.recentAuth;
+  const ownAdmin = security?.admins.find((admin) => admin.id === security.currentUserId) ?? (profile && profile.user.id === security?.currentUserId ? { ...profile.user, status: "ACTIVE" as const } : null);
+  const title = section === "devices" ? "QR受付端末" : section === "administrators" ? "管理者" : "自分の設定";
   return <section aria-busy={loading || busy}>
-    <div className="workspace-heading"><Link href="/">ホームへ</Link><h1>管理者の設定</h1><p className="muted">管理者のパスキーや、QR受付に使う端末を管理する画面です。名簿・記録を管理する操作も、管理者だけが行います。</p><p className="field-help">管理者名・端末名だけの変更は、ログイン中ならそのまま保存できます。パスキーの変更や端末の承認などは、本人確認から5分を過ぎた場合だけ再確認します。</p></div>
+    <div className="page-heading"><div><h1>{title}</h1><p className="muted">{section === "devices" ? "入口でQRを読み取る端末の申請と、有効期限を管理します。" : section === "administrators" ? "管理する方の招待、表示名の変更、利用停止を行います。" : "自分の名前と、ログイン・復旧に使う認証方法を管理します。"}</p></div></div>
     {message && <div ref={notice} tabIndex={-1} role="status" className="notice">{message}</div>}
     {loading ? <p role="status">設定を読み込んでいます…</p> : !security ? <div className="settings-section"><p>管理者としてログインした後、この画面を開いてください。</p><div className="inline-actions"><Link className="text-link" href="/">ログイン画面へ</Link><button className="secondary" disabled={busy} onClick={() => void refresh()}>状態を再確認</button></div></div> : <>
+      {section === "account" && <>
+      {ownAdmin && <section className="settings-section" aria-labelledby="own-profile-title"><div className="section-heading"><div><h2 id="own-profile-title">自分の情報</h2><p><strong>{ownAdmin.name}</strong></p><p className="item-meta">{ownAdmin.email}<span className="small-label">{ownAdmin.emailVerified ? "確認済み" : "未確認"}</span></p></div><button className="secondary" disabled={busy} onClick={() => open({ kind: "admin-rename", admin: ownAdmin })}>名前を変更</button></div><p className="field-help">表示名だけを変更できます。メールアドレスとログイン方法はそのままです。</p></section>}
       <section className="settings-section" aria-labelledby="passkeys-title">
         <div className="section-heading"><div><h2 id="passkeys-title">パスキー</h2><p className="muted">個人で使用する端末に20件まで登録できます。最後のパスキーは失効できません。</p></div><button disabled={busy || security.passkeys.length >= 20} onClick={() => open({ kind: "add" })}>パスキーを追加</button></div>
         <ul className="item-list">{security.passkeys.map((passkey) => <li key={passkey.id}><h3>{passkey.name ?? "名前のないパスキー"}</h3><p className="item-meta">登録：{dateLabel(passkey.createdAt)}<br />最終利用：{dateLabel(passkey.lastUsedAt)}</p><div className="inline-actions"><button className="secondary" disabled={busy} onClick={() => open({ kind: "rename", passkey })}>名前を変更<span className="visually-hidden">：{passkey.name ?? "名前のないパスキー"}</span></button><button className="danger-button" disabled={busy || security.passkeys.length <= 1} onClick={() => open({ kind: "revoke", passkey })}>失効<span className="visually-hidden">：{passkey.name ?? "名前のないパスキー"}</span></button></div></li>)}</ul>
       </section>
       <section className="settings-section" aria-labelledby="recovery-title"><h2 id="recovery-title">復旧コード</h2><p>{security.recoveryConfigured ? "復旧コードは発行済みです。パスキーを使えない場合に備え、端末とは別の安全な場所へ保管してください。" : "復旧コードがまだありません。パスキーを使えない場合に備えて発行してください。"}</p><button className="secondary" disabled={busy} onClick={() => open({ kind: "recovery" })}>{security.recoveryConfigured ? "復旧コードを再発行" : "復旧コードを発行"}</button></section>
-      <section className="settings-section" aria-labelledby="administrators-title">
+      </>}
+      {section === "administrators" && <section className="settings-section" aria-labelledby="administrators-title">
         <div className="section-heading"><div><h2 id="administrators-title">管理者</h2><p className="muted">招待コードは、登録する本人に安全な方法で渡してください。</p></div><button className="secondary" disabled={busy} onClick={() => open({ kind: "invite" })}>管理者を招待</button></div>
         <ul className="item-list">{security.admins.map((admin) => <li key={admin.id}><h3>{admin.name}<span className="small-label">{admin.status === "ACTIVE" ? "有効" : "停止"}</span></h3><p className="item-meta">{admin.email}<span className="small-label">{admin.emailVerified ? "確認済み" : "未確認"}</span></p><div className="inline-actions"><button className="secondary" disabled={busy} onClick={() => open({ kind: "admin-rename", admin })}>名前を変更<span className="visually-hidden">：{admin.name}</span></button>{admin.status === "ACTIVE" && <button className="danger-button" disabled={busy || (!security.adminsNextCursor && security.admins.filter((item) => item.status === "ACTIVE").length <= 1)} onClick={() => open({ kind: "disable", admin })}>管理者を停止<span className="visually-hidden">：{admin.name}</span></button>}</div></li>)}</ul>
         {security.adminsNextCursor && <button className="secondary" disabled={busy} onClick={() => void (async () => {
@@ -154,13 +161,13 @@ export function SettingsPanel() {
           } catch (error) { setMessage(error instanceof Error ? error.message : "次の管理者を読み込めませんでした。"); }
           finally { setBusy(false); }
         })()}>次の管理者を表示</button>}
-      </section>
-      <section className="settings-section" aria-labelledby="devices-title"><div className="section-heading"><div><h2 id="devices-title">QR受付に使う端末</h2><p className="muted">入口に置き、利用者のQRコードを読み取って入退出を記録するスマホ・タブレットです。QR受付用の登録では、名簿や管理者の設定は操作できません。</p><p className="field-help">受付に使う端末で、このサイトの<Link className="text-link" href="/device">QR受付に使う端末を登録</Link>を開いて申請します。ここでは申請内容を確認して承認します。QRを読み取る画面は準備中です。</p></div><button className="secondary" disabled={busy} onClick={() => void refresh()}>一覧を更新</button></div>{devices.items.length === 0 ? <p>登録・申請された端末はありません。</p> : <ul className="item-list">{devices.items.map((device) => <li key={device.id}><h3>{device.name} <span className="status-label">{deviceLabels[device.status]}</span></h3>{device.status === "PENDING" && <p className="item-meta">確認コード：<strong>{device.confirmationCode}</strong><br />申請期限：{dateLabel(device.applicationExpiresAt)}</p>}<p className="item-meta">有効期限：{dateLabel(device.expiresAt)}<br />最終利用：{dateLabel(device.lastUsedAt)}</p><div className="inline-actions"><button className="secondary" disabled={busy} onClick={() => open({ kind: "device-rename", device })}>名前を変更<span className="visually-hidden">：{device.name}</span></button>{device.status === "PENDING" && <><button disabled={busy} onClick={() => open({ kind: "approve", device })}>承認<span className="visually-hidden">：{device.name}</span></button><button className="secondary" disabled={busy} onClick={() => open({ kind: "reject", device })}>拒否<span className="visually-hidden">：{device.name}</span></button></>}{device.status === "APPROVED" && <button className="danger-button" disabled={busy} onClick={() => open({ kind: "device-revoke", device })}>失効<span className="visually-hidden">：{device.name}</span></button>}</div></li>)}</ul>}{devices.nextCursor && <div className="inline-actions"><button className="secondary" disabled={busy} onClick={() => void (async () => {
+      </section>}
+      {section === "devices" && <section className="settings-section" aria-labelledby="devices-title"><div className="section-heading"><div><h2 id="devices-title">QR受付に使う端末</h2><p className="muted">利用者の個人QRを読むために、承認されたブラウザを使います。受付の資格では名簿や管理画面を操作できません。</p><p className="field-help">受付に使う端末で<Link className="text-link" href="/device">このサイトの端末登録</Link>を開いて申請します。ここで確認コードを照合して承認した後、申請元のブラウザで利用を開始してください。</p></div><button className="secondary" disabled={busy} onClick={() => void refresh()}>一覧を更新</button></div>{devices.items.length === 0 ? <div className="empty-state"><p>登録・申請された端末はありません。</p><p className="field-help">入口のスマホ・タブレットで、このサイトの端末登録を開いてください。</p></div> : <ul className="item-list">{devices.items.map((device) => <li key={device.id}><h3>{device.name} <span className="status-label">{deviceLabels[device.status]}</span></h3>{device.status === "PENDING" && <p className="item-meta">確認コード：<strong>{device.confirmationCode}</strong><br />申請期限：{dateLabel(device.applicationExpiresAt)}</p>}<p className="item-meta">有効期限：{dateLabel(device.expiresAt)}<br />最終利用：{dateLabel(device.lastUsedAt)}</p><div className="inline-actions"><button className="secondary" disabled={busy} onClick={() => open({ kind: "device-rename", device })}>名前を変更<span className="visually-hidden">：{device.name}</span></button>{device.status === "PENDING" && <><button disabled={busy} onClick={() => open({ kind: "approve", device })}>承認<span className="visually-hidden">：{device.name}</span></button><button className="secondary" disabled={busy} onClick={() => open({ kind: "reject", device })}>拒否<span className="visually-hidden">：{device.name}</span></button></>}{device.status === "APPROVED" && <button className="danger-button" disabled={busy} onClick={() => open({ kind: "device-revoke", device })}>失効<span className="visually-hidden">：{device.name}</span></button>}</div></li>)}</ul>}{devices.nextCursor && <div className="inline-actions"><button className="secondary" disabled={busy} onClick={() => void (async () => {
         setBusy(true); setMessage("");
         try { const next = await api(`/api/admin/devices?cursor=${encodeURIComponent(devices.nextCursor!)}`, devicesResponseSchema); setDevices({ items: [...devices.items, ...next.items], nextCursor: next.nextCursor }); }
         catch (error) { setMessage(error instanceof Error ? error.message : "次の端末を読み込めませんでした。"); }
         finally { setBusy(false); }
-      })()}>続きを表示</button></div>}</section>
+      })()}>続きを表示</button></div>}</section>}
     </>}
     <Modal open={action !== null} title={dialog.title} description={dialog.description} busy={busy} onClose={() => { if (!busy) setAction(null); }}>
       {action?.kind === "codes" || action?.kind === "invitation" ? <>

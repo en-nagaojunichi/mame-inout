@@ -12,6 +12,7 @@ import { createAttendanceRoutes } from "./attendance-routes.js";
 import { AttendanceError } from "./attendance.js";
 import { createIdentityRoutes } from "./identity-routes.js";
 import { createDeviceRoutes } from "./device-routes.js";
+import { createPeopleRoutes } from "./people-routes.js";
 import { registrationCookieName } from "./identity.js";
 
 const error = (code: string, message: string) => ({ code, message });
@@ -106,6 +107,7 @@ export function createApp(db: Database, config: Config) {
   app.route("/", createAttendanceRoutes(db, access));
   app.route("/", createIdentityRoutes(db, config, access, auth));
   app.route("/", createDeviceRoutes(db, config, access));
+  app.route("/", createPeopleRoutes(db, access));
   app.notFound((c) => c.json(error("NOT_FOUND", "この操作は利用できません。"), 404));
   return app;
 }

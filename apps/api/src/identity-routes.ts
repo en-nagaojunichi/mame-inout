@@ -1,4 +1,5 @@
 import { Hono, type Context } from "hono";
+import { readJson } from "./request-input.js";
 import { setCookie } from "hono/cookie";
 import { z } from "zod";
 import {
@@ -17,7 +18,7 @@ import {
 } from "./identity.js";
 
 async function input<T>(c: Context, schema: z.ZodType<T>) {
-  const parsed = schema.safeParse(await c.req.json().catch(() => null));
+  const parsed = schema.safeParse(await readJson(c));
   if (!parsed.success) throw new AttendanceError("INVALID_INPUT", 422, "入力内容を確認してください。");
   return parsed.data;
 }

@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { readJson } from "./request-input.js";
 import { z } from "zod";
 import {
   peopleQuerySchema, peopleResponseSchema, personDetailSchema, personInputSchema, personStatusInputSchema,
@@ -35,7 +36,7 @@ export function createPeopleRoutes(db: Database, access: Authorization) {
   });
   routes.post("/api/admin/people", async (c) => {
     const actor = await access.admin(c);
-    const input = personInputSchema.safeParse(await c.req.json().catch(() => null));
+    const input = personInputSchema.safeParse(await readJson(c));
     if (!input.success) throw invalid();
     return c.json(personDetailSchema.parse(await createPerson(db, actor, input.data)), 201);
   });
@@ -45,25 +46,25 @@ export function createPeopleRoutes(db: Database, access: Authorization) {
   });
   routes.patch("/api/admin/people/:id", async (c) => {
     const actor = await access.admin(c);
-    const input = personUpdateInputSchema.safeParse(await c.req.json().catch(() => null));
+    const input = personUpdateInputSchema.safeParse(await readJson(c));
     if (!input.success) throw invalid();
     return c.json(personDetailSchema.parse(await updatePerson(db, actor, personId(c.req.param("id")), input.data)));
   });
   routes.put("/api/admin/people/:id/status", async (c) => {
     const actor = await access.recentAdmin(c);
-    const input = personStatusInputSchema.safeParse(await c.req.json().catch(() => null));
+    const input = personStatusInputSchema.safeParse(await readJson(c));
     if (!input.success) throw invalid();
     return c.json(personDetailSchema.parse(await setPersonStatus(db, actor, personId(c.req.param("id")), input.data)));
   });
   routes.post("/api/admin/people/:id/qr-credentials", async (c) => {
     const actor = await access.recentAdmin(c);
-    const input = qrIssueInputSchema.safeParse(await c.req.json().catch(() => null));
+    const input = qrIssueInputSchema.safeParse(await readJson(c));
     if (!input.success) throw invalid();
     return c.json(qrIssueResponseSchema.parse(await issuePersonQr(db, actor, personId(c.req.param("id")), input.data)), 201);
   });
   routes.delete("/api/admin/people/:id/qr-credentials/current", async (c) => {
     const actor = await access.recentAdmin(c);
-    const input = qrIssueInputSchema.safeParse(await c.req.json().catch(() => null));
+    const input = qrIssueInputSchema.safeParse(await readJson(c));
     if (!input.success) throw invalid();
     return c.json(personDetailSchema.parse(await revokePersonQr(db, actor, personId(c.req.param("id")), input.data)));
   });

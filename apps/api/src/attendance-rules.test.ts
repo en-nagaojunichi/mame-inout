@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { assertVisitTimes, attendanceOutcome, facilityDateTime, intervalsOverlap } from "./attendance-rules.js";
+import { assertVisitTimes, attendanceOutcome, createFacilityDateTimeFormatter, facilityDateTime, intervalsOverlap } from "./attendance-rules.js";
 
 const date = (value: string) => new Date(value);
 const now = date("2026-11-07T12:00:00Z");
@@ -55,5 +55,37 @@ describe("入退出の業務ルール", () => {
   it("不正な施設タイムゾーンと表示日時を拒否する", () => {
     expect(() => facilityDateTime(now, "Unknown/Facility")).toThrow();
     expect(() => facilityDateTime(new Date("invalid"), "UTC")).toThrow();
+  });
+
+  it("同じ変換器を再利用しても夏時間の開始・終了と年跨ぎを各日時から求める", () => {
+    const format = createFacilityDateTimeFormatter("America/New_York");
+    for (const [iso, expected] of [
+      ["2026-03-08T06:59:59Z", "2026-03-08 01:59:59"],
+      ["2026-03-08T07:00:00Z", "2026-03-08 03:00:00"],
+      ["2026-11-01T05:30:00Z", "2026-11-01 01:30:00"],
+      ["2026-11-01T06:30:00Z", "2026-11-01 01:30:00"],
+      ["2027-01-01T00:30:00Z", "2026-12-31 19:30:00"],
+    ]) {
+      const value = date(iso!);
+      expect(format(value)).toBe(expected);
+      expect(value.toISOString()).toBe(iso!.replace("Z", ".000Z"));
+    }
+  });
+
+  it("分単位の時差と施設の切替えでも元のISO値・24時間表記を維持する", () => {
+    const value = date("2026-06-01T18:15:00Z"), kathmandu = createFacilityDateTimeFormatter("Asia/Kathmandu"), tokyo = createFacilityDateTimeFormatter("Asia/Tokyo");
+    expect(kathmandu(value)).toBe("2026-06-02 00:00:00");
+    expect(tokyo(value)).toBe("2026-06-02 03:15:00");
+    expect(kathmandu(date("2026-06-01T00:00:00+05:45"))).toBe("2026-06-01 00:00:00");
+    expect(createFacilityDateTimeFormatter("UTC")(value)).toBe("2026-06-01 18:15:00");
+    expect(value.toISOString()).toBe("2026-06-01T18:15:00.000Z");
+  });
+
+  it("再利用する変換器も不正日時・タイムゾーンを従来のエラーとして拒否する", () => {
+    expect(() => createFacilityDateTimeFormatter("Unknown/Facility")).toThrowError(expect.objectContaining({ code: "INVALID_TIMEZONE" }));
+    const format = createFacilityDateTimeFormatter("UTC");
+    expect(() => format(new Date("invalid"))).toThrowError(expect.objectContaining({ code: "INVALID_TIME" }));
+    expect(format(now)).toBe("2026-11-07 12:00:00");
+    expect(() => facilityDateTime(new Date("invalid"), "Unknown/Facility")).toThrowError(expect.objectContaining({ code: "INVALID_TIME" }));
   });
 });

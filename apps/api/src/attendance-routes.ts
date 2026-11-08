@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { readJson } from "./request-input.js";
 import {
   attendanceCsvQuerySchema, attendancePatchInputSchema, attendanceQuerySchema, attendanceRecordInputSchema, attendanceResultSchema,
   attendanceRequestResultSchema, attendanceTicketSchema, emptyRequestSchema,
@@ -35,7 +36,7 @@ export function createAttendanceRoutes(db: Database, access: Authorization) {
   });
   routes.post("/api/admin/attendance", async (c) => {
     const actor = await access.recentAdmin(c);
-    const input = manualVisitRequestInputSchema.safeParse(await c.req.json().catch(() => null));
+    const input = manualVisitRequestInputSchema.safeParse(await readJson(c));
     if (!input.success) throw invalidInput();
     return c.json(visitDtoSchema.parse(await createManualVisit(db, actor, input.data)), 201);
   });
@@ -61,7 +62,7 @@ export function createAttendanceRoutes(db: Database, access: Authorization) {
   routes.patch("/api/admin/attendance/:id", async (c) => {
     const actor = await access.recentAdmin(c);
     const id = z.uuid().safeParse(c.req.param("id"));
-    const input = attendancePatchInputSchema.safeParse(await c.req.json().catch(() => null));
+    const input = attendancePatchInputSchema.safeParse(await readJson(c));
     if (!id.success || !input.success) throw invalidInput();
     return c.json(visitDtoSchema.parse(await correctAttendanceVisit(db, actor, { ...input.data, visitId: id.data })));
   });
@@ -75,12 +76,12 @@ export function createAttendanceRoutes(db: Database, access: Authorization) {
   });
   routes.post("/api/reception/requests", async (c) => {
     const actor = await access.reception(c);
-    if (!emptyRequestSchema.safeParse(await c.req.json().catch(() => null)).success) throw invalidInput();
+    if (!emptyRequestSchema.safeParse(await readJson(c)).success) throw invalidInput();
     return c.json(attendanceTicketSchema.parse(await issueAttendanceRequest(db, actor)), 201);
   });
   routes.post("/api/reception/records", async (c) => {
     const actor = await access.reception(c);
-    const input = attendanceRecordInputSchema.safeParse(await c.req.json().catch(() => null));
+    const input = attendanceRecordInputSchema.safeParse(await readJson(c));
     if (!input.success) throw invalidInput();
     const result = await recordAttendance(db, actor, input.data);
     return c.json(attendanceResultSchema.parse(result.body), result.status);

@@ -4,7 +4,7 @@ import {
 } from "@mame/contracts";
 import { Prisma } from "./generated/prisma/client.js";
 import type { Database } from "./db.js";
-import { AttendanceError, facilityDateTime } from "./attendance-rules.js";
+import { AttendanceError, createFacilityDateTimeFormatter } from "./attendance-rules.js";
 import { assertAdministrator, identityClock, type AdminActor } from "./identity.js";
 import { hash } from "./setup.js";
 
@@ -151,9 +151,11 @@ export async function exportAttendanceCsv(db: Database, actor: AdminActor, query
       filters: { personId: query.personId ?? null, from: query.from ?? null, to: query.to ?? null, status: query.status, source: query.source, corrected: query.corrected,
         searchHash: query.q ? hash(query.q) : null, affiliationHash: query.affiliation ? hash(query.affiliation) : null } } } });
     const lines = [["利用者ID", "表示名", "所属", "利用者コード", "入室日時", "退室日時", "状態", "記録方法", "訂正有無", "タイムゾーン", "取得日時", "記録ID"]];
-    for (const row of rows) lines.push([row.personId, row.displayName, row.affiliation ?? "", row.code ?? "", facilityDateTime(row.enteredAt, timeZone),
-      row.exitedAt ? facilityDateTime(row.exitedAt, timeZone) : "", row.canceledAt ? "取消" : row.exitedAt ? "退室済み" : "在室中", row.source === "MANUAL" ? "手動" : "QR受付", row.corrected ? "訂正あり" : "訂正なし", timeZone,
-      facilityDateTime(asOf, timeZone), row.id]);
+    // 同じスナップショットの取得日時は全行で共通。施設TZの変換器とともに一度だけ作る。
+    const dateTime = createFacilityDateTimeFormatter(timeZone), capturedAt = dateTime(asOf);
+    for (const row of rows) lines.push([row.personId, row.displayName, row.affiliation ?? "", row.code ?? "", dateTime(row.enteredAt),
+      row.exitedAt ? dateTime(row.exitedAt) : "", row.canceledAt ? "取消" : row.exitedAt ? "退室済み" : "在室中", row.source === "MANUAL" ? "手動" : "QR受付", row.corrected ? "訂正あり" : "訂正なし", timeZone,
+      capturedAt, row.id]);
     return `\uFEFF${lines.map((line) => line.map(csvCell).join(",")).join("\r\n")}\r\n`;
   });
 }

@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { readJson } from "./request-input.js";
 import { getCookie, setCookie } from "hono/cookie";
 import { z } from "zod";
 import {
@@ -28,7 +29,7 @@ export function createDeviceRoutes(db: Database, config: Config, access: Authori
     await next();
   });
   routes.post("/api/devices/apply", async (c) => {
-    const input = deviceApplyInputSchema.safeParse(await c.req.json().catch(() => null));
+    const input = deviceApplyInputSchema.safeParse(await readJson(c));
     if (!input.success) throw invalid();
     const result = await applyDevice(db, input.data);
     setCookie(c, applicationCookieName(config.secure), result.token, {
@@ -43,7 +44,7 @@ export function createDeviceRoutes(db: Database, config: Config, access: Authori
     return c.json(deviceApplicationResponseSchema.parse(await getCurrentDevice(db, actor.deviceId)));
   });
   routes.post("/api/devices/claim", async (c) => {
-    if (!emptyRequestSchema.safeParse(await c.req.json().catch(() => null)).success) throw invalid();
+    if (!emptyRequestSchema.safeParse(await readJson(c)).success) throw invalid();
     const result = await claimDevice(db, config, applicationToken(c));
     // 資格はJSONに含めず、管理者ログインとは独立したHttpOnly Cookieだけで渡す。
     setCookie(c, receptionCookieName(config.secure), result.token, {
@@ -64,7 +65,7 @@ export function createDeviceRoutes(db: Database, config: Config, access: Authori
       return c.json({ code: "RATE_LIMITED", message: "操作が続いています。1分ほど待ってからお試しください。" }, 429);
     }
     const id = z.uuid().safeParse(c.req.param("id"));
-    const input = deviceNameInputSchema.safeParse(await c.req.json().catch(() => null));
+    const input = deviceNameInputSchema.safeParse(await readJson(c));
     if (!id.success || !input.success) throw invalid();
     return c.json(await renameDevice(db, actor, id.data, input.data));
   });
@@ -77,7 +78,7 @@ export function createDeviceRoutes(db: Database, config: Config, access: Authori
       }
       const id = z.uuid().safeParse(c.req.param("id"));
       if (!id.success) throw invalid();
-      const body = await c.req.json().catch(() => null);
+      const body = await readJson(c);
       if (action === "approve") {
         const input = deviceApprovalInputSchema.safeParse(body);
         if (!input.success) throw invalid();

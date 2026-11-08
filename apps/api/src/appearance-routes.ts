@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { readJson } from "./request-input.js";
 import type { Database } from "./db.js";
 import type { Authorization } from "./authorization.js";
 import { appearanceInputSchema } from "@mame/contracts";
@@ -12,7 +13,7 @@ export function createAppearanceRoutes(db: Database, access: Authorization) {
   routes.get("/api/admin/appearance", async (c) => { await access.admin(c); return c.json(await getAppearance(db)); });
   routes.put("/api/admin/appearance", async (c) => {
     const actor = await access.admin(c);
-    const input = appearanceInputSchema.safeParse(await c.req.json().catch(() => null));
+    const input = appearanceInputSchema.safeParse(await readJson(c));
     if (!input.success) throw new AttendanceError("INVALID_INPUT", 422, "表示名・画像と更新状態を確認してください。");
     return c.json(await updateAppearance(db, actor, input.data));
   });

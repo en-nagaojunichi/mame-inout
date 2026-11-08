@@ -1,6 +1,6 @@
 import type { AttendanceMode } from "@mame/contracts";
 
-export type AttendanceErrorStatus = 401 | 403 | 404 | 409 | 410 | 422 | 429 | 503;
+export type AttendanceErrorStatus = 401 | 403 | 404 | 409 | 410 | 415 | 422 | 429 | 503;
 
 export class AttendanceError extends Error {
   override readonly name = "AttendanceError";
@@ -41,15 +41,31 @@ export function attendanceOutcome(mode: AttendanceMode, isInside: boolean): "REC
   return "RECORDED";
 }
 
-export function facilityDateTime(date: Date, timeZone: string): string {
-  if (!validDate(date)) throw new AttendanceError("INVALID_TIME", 422, "表示する時刻を確認してください。");
+export function createFacilityDateTimeFormatter(timeZone: string): (date: Date) => string {
+  let formatter: Intl.DateTimeFormat;
   try {
-    const parts = Object.fromEntries(new Intl.DateTimeFormat("en-CA", {
+    // 一括出力では施設ごとに一度だけ作り、行数に比例したIntlの初期化を避ける。
+    // グローバルには保持せず、別施設・別設定の表示へ使い回さない。
+    formatter = new Intl.DateTimeFormat("en-CA", {
       timeZone, year: "numeric", month: "2-digit", day: "2-digit",
       hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23",
-    }).formatToParts(date).map((part) => [part.type, part.value]));
-    return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}:${parts.second}`;
+    });
   } catch {
     throw new AttendanceError("INVALID_TIMEZONE", 422, "施設のタイムゾーンを確認してください。");
   }
+  return (date) => {
+    if (!validDate(date)) throw new AttendanceError("INVALID_TIME", 422, "表示する時刻を確認してください。");
+    try {
+      const parts = Object.fromEntries(formatter.formatToParts(date).map((part) => [part.type, part.value]));
+      return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}:${parts.second}`;
+    } catch {
+      throw new AttendanceError("INVALID_TIMEZONE", 422, "施設のタイムゾーンを確認してください。");
+    }
+  };
+}
+
+export function facilityDateTime(date: Date, timeZone: string): string {
+  // 日時とタイムゾーンの両方が不正でも、従来どおり日時のエラーを先に返す。
+  if (!validDate(date)) throw new AttendanceError("INVALID_TIME", 422, "表示する時刻を確認してください。");
+  return createFacilityDateTimeFormatter(timeZone)(date);
 }

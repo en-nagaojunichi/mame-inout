@@ -16,6 +16,7 @@ import { createPeopleRoutes } from "./people-routes.js";
 import { createAppearanceRoutes } from "./appearance-routes.js";
 import { createPrivacyRoutes } from "./privacy-routes.js";
 import { registrationCookieName } from "./identity.js";
+import { assertJsonContentType, readJson } from "./request-input.js";
 
 const error = (code: string, message: string) => ({ code, message });
 const authPaths = new Map([
@@ -60,7 +61,7 @@ export function createApp(db: Database, config: Config) {
     if (!await allowAttempt(db, "setup", c.req.header("X-Mame-Client-IP") ?? "local", 5, 900)) {
       c.header("Retry-After", "900"); return c.json(error("RATE_LIMITED", "試行が続いています。15分ほど待ってからお試しください。"), 429);
     }
-    const input = setupInputSchema.safeParse(await c.req.json().catch(() => null));
+    const input = setupInputSchema.safeParse(await readJson(c));
     if (!input.success) return c.json(error("INVALID_INPUT", "設定コード、表示名、メールアドレスを確認してください。"), 422);
     const token = await beginSetup(db, input.data);
     if (!token) return c.json(error("SETUP_DENIED", "設定コードが無効か、初期設定が完了しています。サーバー管理者に確認してください。"), 403);
@@ -69,6 +70,8 @@ export function createApp(db: Database, config: Config) {
   });
   app.all("/api/auth/*", async (c) => {
     if (authPaths.get(c.req.path) !== c.req.method) return c.json(error("NOT_FOUND", "この操作は利用できません。"), 404);
+    // ログアウトの本文なし要求は許可し、本文がある場合だけJSON形式を要求する。
+    if (c.req.raw.body) assertJsonContentType(c);
     if (!await allowAttempt(db, "auth", c.req.header("X-Mame-Client-IP") ?? "local", 60, 60)) {
       c.header("Retry-After", "60"); return c.json(error("RATE_LIMITED", "1分ほど待ってからお試しください。"), 429);
     }

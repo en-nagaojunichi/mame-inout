@@ -51,13 +51,13 @@ SSH接続名の例は `inout-storage` です。`sudo` で実行する保守処�
 
 ## 3. 配布物を展開して設定する
 
-配布物を専用の場所へ展開します。例：`/opt/inout/releases/0.1.0-dev.m06/`。その中に `source/`・`manifest.json`・`images.tar` があることを確認してください。提供元から別経路で受け取った配布物の指紋も照合します。同梱manifestだけでは提供元の真正性までは証明できません。
+配布物を専用の場所へ展開します。例：`/opt/inout/releases/0.1.0-dev.m07/`。その中に `source/`・`manifest.json`・`images.tar` があることを確認してください。提供元から別経路で受け取った配布物の指紋も照合します。同梱manifestだけでは提供元の真正性までは証明できません。
 
 次は例のパスです。実際に展開した場所へ合わせて実行してください。
 
 ```sh
 sudo install -d -m 0700 /etc/inout
-sudo python3 /opt/inout/releases/0.1.0-dev.m06/source/scripts/operations.py --config /etc/inout/operations.json configure
+sudo python3 /opt/inout/releases/0.1.0-dev.m07/source/scripts/operations.py --config /etc/inout/operations.json configure
 ```
 
 画面の質問には次の内容を入力します。秘密の値そのものを入力する欄はありません。
@@ -65,7 +65,7 @@ sudo python3 /opt/inout/releases/0.1.0-dev.m06/source/scripts/operations.py --co
 | 質問 | 入力例・判断方法 |
 | --- | --- |
 | 専用プロジェクト名 | `mame-inout-facility`。既存コンテナのプロジェクト名と重ねません |
-| 配布物 | `/opt/inout/releases/0.1.0-dev.m06` |
+| 配布物 | `/opt/inout/releases/0.1.0-dev.m07` |
 | 専用保管先 | `/var/lib/inout-facility`。まだ存在しない場所を指定します |
 | HTTPSのURL | 実際に使うURL。末尾の `/` は付けません |
 | 内部ポート | `18082` など、既存サービスが使っていない1024以上の番号 |
@@ -78,8 +78,8 @@ sudo python3 /opt/inout/releases/0.1.0-dev.m06/source/scripts/operations.py --co
 ## 4. 診断して起動する
 
 ```sh
-sudo python3 /opt/inout/releases/0.1.0-dev.m06/source/scripts/operations.py --config /etc/inout/operations.json diagnose
-sudo python3 /opt/inout/releases/0.1.0-dev.m06/source/scripts/operations.py --config /etc/inout/operations.json install
+sudo python3 /opt/inout/releases/0.1.0-dev.m07/source/scripts/operations.py --config /etc/inout/operations.json diagnose
+sudo python3 /opt/inout/releases/0.1.0-dev.m07/source/scripts/operations.py --config /etc/inout/operations.json install
 ```
 
 診断が止まった場合は、表示された対象を直してから再実行します。容量不足を解消するために既存DBや他サービスのファイルを削除しないでください。導入途中で停止した場合も、同じ設定の `install` で再開します。
@@ -107,8 +107,8 @@ sudo docker --host unix:///var/run/docker.sock compose --project-name mame-inout
 ## 7. 自動保守と復元確認を有効にする
 
 ```sh
-sudo python3 /opt/inout/releases/0.1.0-dev.m06/source/scripts/operations.py --config /etc/inout/operations.json enable-maintenance
-sudo python3 /opt/inout/releases/0.1.0-dev.m06/source/scripts/operations.py --config /etc/inout/operations.json backup
+sudo python3 /opt/inout/releases/0.1.0-dev.m07/source/scripts/operations.py --config /etc/inout/operations.json enable-maintenance
+sudo python3 /opt/inout/releases/0.1.0-dev.m07/source/scripts/operations.py --config /etc/inout/operations.json backup
 ```
 
 削除の保守は5分ごと、期限を過ぎた終了済み履歴の削除は1日1回実行します。未退室の記録は期限だけで消しません。別サーバーの停止などで個人情報を削除できなければ「保留」のままになり、次回に再試行します。

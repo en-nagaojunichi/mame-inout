@@ -1,6 +1,6 @@
 {
   "name": "mame-inout",
-  "version": "0.1.0-dev.m07",
+  "version": "0.1.0-dev.m08",
   "private": true,
   "type": "module",
   "workspaces": [

@@ -9,6 +9,6 @@ export function WorkspaceShell({ label, children }: { label: string; children: R
     <a className="skip-link" href="#main">本文へ移動</a>
     <header className="site-header"><Link href="/" className="brand-link"><Brand /></Link><span className="header-label">{headerLabel}</span></header>
     <main id="main" className="workspace">{children}</main>
-    <footer><AppVersion /><br />開発中の検証版です。実際の名簿・入退出記録の運用開始はお待ちください。</footer>
+    <footer><AppVersion /></footer>
   </>;
 }

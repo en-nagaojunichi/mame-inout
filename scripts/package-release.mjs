@@ -16,7 +16,7 @@ if (!inputApi || !inputWeb || !destination.startsWith(root + "\\") && !destinati
 const files = execFileSync("git", ["ls-files", "--cached", "--others", "--exclude-standard", "-z"], { encoding: "utf8" }).split("\0").filter(Boolean);
 // Gitの除外結果に加えて配布範囲を固定し、実データやビルド出力を拾わない。
 const roots = new Set(["apps", "packages", "infra", "scripts", "tests", "docs", ".github"]);
-const rootFiles = new Set(["package.json", "package-lock.json", "tsconfig.base.json", "eslint.config.mjs", "vitest.config.ts", "vitest.integration.config.ts", "playwright.config.ts", ".npmrc", ".node-version", ".gitattributes", ".gitignore", ".dockerignore", ".env.example", "compose.yaml", "compose.https.yaml", "compose.nginx.yaml", "compose.desktop.yaml", "compose.test.yaml", "compose.test.desktop.yaml", "README.md", "LICENSE"]);
+const rootFiles = new Set(["package.json", "package-lock.json", "tsconfig.base.json", "eslint.config.mjs", "vitest.config.ts", "vitest.integration.config.ts", "playwright.config.ts", ".npmrc", ".node-version", ".gitattributes", ".gitignore", ".dockerignore", ".env.example", "compose.yaml", "compose.https.yaml", "compose.nginx.yaml", "compose.desktop.yaml", "compose.test.yaml", "compose.test.desktop.yaml", "README.md", "LICENSE", "SECURITY.md"]);
 await mkdir(destination, { recursive: false });
 const hashes = {};
 for (const file of [...new Set(files)].sort()) {

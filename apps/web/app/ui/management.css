@@ -27,9 +27,19 @@
 .mobile-nav nav a:hover { background: var(--page); }
 .mobile-nav nav a[aria-current] { color: var(--accent); background: var(--soft); font-weight: 700; box-shadow: inset 3px 0 var(--accent); }
 .mobile-nav-close { width: 100%; display: flex; justify-content: space-between; margin-top: 18px; }
-.app-version { display: inline-flex; gap: 8px; font-variant-numeric: tabular-nums; font-size: 12px; }
-.app-version > span { padding: 0 6px; background: #edf1ee; border-radius: 3px; }
+.app-version { display: inline-flex; flex-wrap: wrap; gap: 0 8px; font-variant-numeric: tabular-nums; font-size: 12px; }
+.app-version-number { white-space: nowrap; }
 .admin-footer { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 8px 20px; }
+/* 受付への導線を常に同じ場所へ置き、最下部の操作もリンクの上までスクロールできる余白を取る。 */
+.admin-app { padding-bottom: calc(96px + env(safe-area-inset-bottom, 0px)); }
+.reception-shortcut { position: fixed; z-index: 10; right: max(20px, env(safe-area-inset-right, 0px)); bottom: calc(20px + env(safe-area-inset-bottom, 0px)); display: inline-flex; align-items: center; justify-content: center; gap: 10px; min-height: 56px; max-width: calc(100% - 40px); padding: 14px 20px; border: 1px solid var(--accent); border-radius: 999px; background: var(--accent); color: #fff; font-size: 16px; font-weight: 600; text-decoration: none; white-space: nowrap; box-shadow: 0 4px 16px #1a312622; }
+.reception-shortcut:hover { background: #28513f; }
+.reception-shortcut .menu-icon { width: 24px; height: 24px; }
+/* 確認中は背景の移動操作を隠す。dialog本体のtop layerとフォーカス管理は共通部品へ任せる。 */
+.admin-app:has(dialog[open]) .reception-shortcut { visibility: hidden; }
+/* 短いページでも版表示と固定リンクが並べるよう、スマホのフッターは右側を空ける。 */
+@media (max-width: 720px) { .admin-footer { justify-content: flex-start; text-align: left; padding: 0 calc(208px + env(safe-area-inset-right, 0px)) 0 16px; } }
+@media print { .reception-shortcut { display: none !important; } .admin-app { padding-bottom: 0; } }
 .admin-header .brand-link { min-width: 0; flex: 1; }
 .admin-header .brand { flex-shrink: 1; max-width: 100%; font-size: 20px; }
 .admin-account { flex-shrink: 0; }

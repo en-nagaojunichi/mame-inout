@@ -1,15 +1,24 @@
 import { readFile } from "node:fs/promises";
-import { test, expect } from "@playwright/test";
+import { test, expect, type BrowserContext, type Page, type CDPSession } from "@playwright/test";
 import { cookieMetadata, cookieName, maskSecretDisplays } from "./secret-displays";
 import { runPeopleReceptionFlow } from "./people-reception-flow";
 import { runHistoryAppearanceFlow } from "./history-appearance-flow";
 
-test("初期登録からパスキーログイン・ログアウトまで", async ({ page, context, browser, baseURL }, testInfo) => {
-  test.setTimeout(180_000);
-  const issued = await maskSecretDisplays(page);
-  const cdp = await context.newCDPSession(page);
-  const registrationIds = new Set<string>();
+// 実DBの初期登録は一度だけ行い、秘密値はメモリの中で次の検査へ渡す。
+// 長い一本のテストに業務確認を継ぎ足さず、失敗した工程と時間予算を明確にする。
+test.describe("実認証と日常操作", () => {
+  test.describe.configure({ mode: "serial", timeout: 90_000 });
+  let context: BrowserContext, page: Page, cdp: CDPSession, authenticatorId: string;
+  let recoveryContext: BrowserContext, recoveryPage: Page;
+  let issued: Awaited<ReturnType<typeof maskSecretDisplays>>;
+  let initialCodes: string[];
   const blockedCookies: { name: string; reasons: string[] }[] = [];
+  test.beforeAll(async ({ browser, baseURL }) => {
+    context = await browser.newContext({ baseURL });
+    page = await context.newPage();
+  issued = await maskSecretDisplays(page);
+  cdp = await context.newCDPSession(page);
+  const registrationIds = new Set<string>();
   await cdp.send("Network.enable");
   cdp.on("Network.requestWillBeSent", (event) => { if (event.request.url.endsWith("/passkey/verify-registration")) registrationIds.add(event.requestId); });
   cdp.on("Network.responseReceivedExtraInfo", (event) => {
@@ -17,10 +26,16 @@ test("初期登録からパスキーログイン・ログアウトまで", async
     for (const cookie of event.blockedCookies) blockedCookies.push({ name: cookieName(cookie.cookieLine), reasons: cookie.blockedReasons });
   });
   await cdp.send("WebAuthn.enable");
-  const { authenticatorId } = await cdp.send("WebAuthn.addVirtualAuthenticator", { options: {
+  ({ authenticatorId } = await cdp.send("WebAuthn.addVirtualAuthenticator", { options: {
     protocol: "ctap2", transport: "internal", hasResidentKey: true, hasUserVerification: true,
     isUserVerified: true, automaticPresenceSimulation: true,
-  } });
+  } }));
+  });
+  test.afterAll(async () => {
+    await recoveryContext?.close();
+    await context?.close();
+  });
+  test("初期登録・ログイン・ログアウト", async ({ browser, baseURL }, testInfo) => {
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "最初の管理者を登録" })).toBeVisible();
   await page.screenshot({ path: "test-results/setup-desktop.png", fullPage: true });
@@ -50,7 +65,7 @@ test("初期登録からパスキーログイン・ログアウトまで", async
   const initialCodesBody = await initialCodesHttp.json();
   // 失敗の診断は固定コードと状態だけにし、復旧コード自体をassertの差分へ出さない。
   expect({ status: initialCodesHttp.status(), code: initialCodesBody.code ?? "SUCCESS" }).toEqual({ status: 200, code: "SUCCESS" });
-  const initialCodes = issued.recoveries[0];
+  initialCodes = issued.recoveries[0] ?? [];
   if (!initialCodes || initialCodes.length !== 8) throw new Error("初期登録後の復旧コード発行を確認できませんでした。");
   await expect(page.getByRole("dialog", { name: "復旧コードを保存" })).toBeVisible();
   await page.getByRole("button", { name: "保存したので閉じる", exact: true }).click();
@@ -90,6 +105,9 @@ test("初期登録からパスキーログイン・ログアウトまで", async
   await expect(page.getByRole("heading", { name: "管理ホーム", exact: true })).toBeVisible();
   expect((await context.request.post("/api/auth/passkey/verify-authentication", { headers: { Origin: baseURL! }, data: authentication.postDataJSON() })).status()).toBe(400);
   await page.getByRole("button", { name: "ログアウト", exact: true }).click();
+
+  });
+  test("不正なパスキー応答とチャレンジ再使用を拒否", async ({ baseURL }) => {
   for (const invalid of ["uv", "signature", "origin", "rpid"]) {
     // ブラウザ内の待機状態ではなく、署名応答をサーバーが拒否したことを確認する。
     await cdp.send("WebAuthn.setResponseOverrideBits", { authenticatorId, isBadUV: invalid === "uv", isBogusSignature: invalid === "signature" });
@@ -143,7 +161,10 @@ test("初期登録からパスキーログイン・ログアウトまで", async
 
   await page.getByRole("button", { name: "パスキーでログイン", exact: true }).click();
   await expect(page.getByRole("heading", { name: "管理ホーム", exact: true })).toBeVisible();
-  await page.locator(".admin-mobile-menu > summary").click();
+
+  });
+  test("パスキー追加・名前変更と管理者の招待", async ({ browser, baseURL }) => {
+  await page.getByRole("button", { name: "管理メニューを開く", exact: true }).click();
   await page.getByRole("link", { name: "自分の設定", exact: true }).click();
   await expect(page.getByRole("heading", { name: "自分の設定", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "パスキーを追加", exact: true }).click();
@@ -196,9 +217,12 @@ test("初期登録からパスキーログイン・ログアウトまで", async
   expect((await usedInvitation.request.post("/api/invitations/begin", { headers: { Origin: baseURL! }, data: { code: invitation.code } })).status()).toBe(403);
   await usedInvitation.close(); await invitedContext.close();
 
+
+  });
+  test("復旧後に旧資格を失効", async ({ browser, baseURL }) => {
   const beforeRecovery = await context.cookies();
-  const recoveryContext = await browser.newContext({ baseURL });
-  const recoveryPage = await recoveryContext.newPage();
+  recoveryContext = await browser.newContext({ baseURL });
+  recoveryPage = await recoveryContext.newPage();
   await maskSecretDisplays(recoveryPage);
   const recoveryCdp = await recoveryContext.newCDPSession(recoveryPage);
   await recoveryCdp.send("WebAuthn.enable");
@@ -242,7 +266,14 @@ test("初期登録からパスキーログイン・ログアウトまで", async
   await page.getByRole("button", { name: "パスキーでログイン", exact: true }).click();
   expect([400, 401]).toContain((await oldPasskeyResponse).status());
   expect((await context.request.get("/api/admin/me")).status()).toBe(401);
+
+  });
+  test("承認した受付端末でQR入室・退室", async ({ browser, baseURL }) => {
   await runPeopleReceptionFlow(recoveryContext, browser, baseURL!);
+
+  });
+  test("履歴訂正・CSVと表示設定を保存", async ({ baseURL }) => {
   await runHistoryAppearanceFlow(recoveryPage, recoveryContext, baseURL!);
-  await recoveryContext.close();
+
+  });
 });

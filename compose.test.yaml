@@ -9,8 +9,9 @@ services:
       DB_USER: mame_app
       DB_PASSWORD_FILE: /run/secrets/db_app_password
       AUTH_SECRET_FILE: /run/secrets/auth_secret
+      DB_MAINTENANCE_PASSWORD_FILE: /run/secrets/db_maintenance_password
       TEST_PROJECT: ${COMPOSE_PROJECT_NAME}
-    secrets: [db_app_password, auth_secret]
+    secrets: [db_app_password, auth_secret, db_maintenance_password]
     networks: [database]
     depends_on: { migrate: { condition: service_completed_successfully } }
     command: [npm, run, test:integration]

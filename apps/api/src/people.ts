@@ -16,6 +16,12 @@ const missing = () => new AttendanceError("PERSON_NOT_FOUND", 404, "対象の利
 const invalid = () => new AttendanceError("INVALID_INPUT", 422, "名前・任意項目・更新状態を確認してください。");
 const conflict = () => new AttendanceError("VERSION_CONFLICT", 409, "ほかの操作で利用者が更新されています。一覧を更新してから、もう一度操作してください。");
 
+async function assertNotDeleting(tx: Tx, id: string) {
+  if (await tx.deletionInstruction.findUnique({ where: { personId: id }, select: { operationId: true } })) {
+    throw new AttendanceError("DELETION_PENDING", 409, "個人情報の削除を受け付けた利用者は変更・再開できません。保存と個人情報の画面で処理状況を確認してください。");
+  }
+}
+
 async function lockPerson(tx: Tx, id: string) {
   if (!uuid.test(id)) throw missing();
   // 受付・停止・訂正も同じ親行をロックし、QR変更と打刻の前後を確定させる。
@@ -89,6 +95,7 @@ export async function updatePerson(db: Database, actor: AdminActor, id: string, 
     await assertAdministrator(tx, actor, false);
     if (person.version !== parsed.data.expectedVersion) throw conflict();
     if (person.status === "DELETED") throw new AttendanceError("PERSON_UNAVAILABLE", 409, "個人情報を削除した利用者は編集できません。");
+    await assertNotDeleting(tx, id);
     const changed = await tx.person.update({ where: { id }, data: {
       displayName: parsed.data.displayName, phoneticName: parsed.data.phoneticName, affiliation: parsed.data.affiliation,
       code: parsed.data.code, version: { increment: 1 },
@@ -107,6 +114,7 @@ export async function setPersonStatus(db: Database, actor: AdminActor, id: strin
     await assertAdministrator(tx, actor);
     if (person.version !== parsed.data.expectedVersion) throw conflict();
     if (person.status === "DELETED") throw new AttendanceError("PERSON_UNAVAILABLE", 409, "個人情報を削除した利用者は再開できません。");
+    await assertNotDeleting(tx, id);
     if (person.status === parsed.data.status) return detail(tx, id);
     if (parsed.data.status === "SUSPENDED" && await tx.attendanceVisit.findFirst({ where: { personId: id, exitedAt: null, canceledAt: null }, select: { id: true } })) {
       throw new AttendanceError("PERSON_INSIDE", 409, "入室中のため利用停止できません。退室補正か誤記録の取消を先に行ってください。");
@@ -128,6 +136,7 @@ export async function issuePersonQr(db: Database, actor: AdminActor, id: string,
     await assertAdministrator(tx, actor);
     if (person.version !== parsed.data.expectedVersion) throw conflict();
     if (person.status !== "ACTIVE") throw new AttendanceError("PERSON_UNAVAILABLE", 409, "有効な利用者にだけQRを発行できます。利用状態を確認してください。");
+    await assertNotDeleting(tx, id);
     const now = await identityClock(tx);
     const qr = `mio1_${newToken()}`;
     await tx.qrCredential.updateMany({ where: { personId: id, revokedAt: null }, data: { revokedAt: now } });

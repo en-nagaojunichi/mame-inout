@@ -11,6 +11,8 @@ playwright-report/
 test-results/
 .turbo/
 *.tsbuildinfo
+__pycache__/
+*.pyc
 apps/api/src/generated/
 
 # 環境設定・実行時データ

@@ -7,7 +7,7 @@ import { spawnSync } from "node:child_process";
 const directory = resolve(process.argv[2] ?? "secrets");
 await mkdir(directory, { recursive: true, mode: 0o700 });
 await chmod(directory, 0o700);
-for (const name of ["db_admin_password", "db_app_password", "db_migrate_password", "auth_secret"]) {
+for (const name of ["db_admin_password", "db_app_password", "db_migrate_password", "db_backup_password", "db_maintenance_password", "auth_secret"]) {
   try {
     const file = await open(resolve(directory, name), "wx", 0o600);
     try { await file.writeFile(randomBytes(48).toString("base64url")); } finally { await file.close(); }

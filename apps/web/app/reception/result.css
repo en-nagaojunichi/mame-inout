@@ -1,0 +1,18 @@
+/* 結果に視線を集め、記録済み・業務拒否・結果不明を色だけに頼らず区別する。 */
+.reception-screen { min-height: 380px; padding: 12px 0; }
+.qr-camera-view { width: 100%; }
+.reception-screen-mode { text-align: center; font-weight: 600; font-size: 17px; color: var(--muted); }
+.reception-screen .reception-result { text-align: center; border: 1px solid #bed7c7; background: #f0f7f2; padding: 32px; }
+.reception-result-symbol { width: 68px; height: 68px; display: flex; align-items: center; justify-content: center; margin: 0 auto 20px; font-size: 36px; font-weight: 600; border-radius: 50%; color: #fff; background: var(--accent); }
+.reception-screen .reception-result.rejected { background: #fff8ed; border-color: #e3c89e; }
+.rejected .reception-result-symbol { background: #94672d; }
+.reception-screen h2:focus { outline: 0; }
+.reception-screen .reception-result > button { margin-top: 20px; }
+.reception-capture[hidden] { display: none; }
+.reception-capture:focus { outline: 0; }
+@media (max-width: 600px) {
+  .reception-screen .reception-result { padding: 28px 18px; }
+  .reception-result-symbol { width: 60px; height: 60px; font-size: 32px; }
+  .reception-screen .inline-actions { flex-direction: column; align-items: stretch; }
+  .reception-unknown h2 { text-wrap: balance; }
+}

@@ -10,7 +10,7 @@ const initial: Appearance = { displayName: defaultDisplayName, version: 1, iconU
 type BrandContextValue = { appearance: Appearance; refresh: () => Promise<void>; setAppearance: (appearance: Appearance) => void };
 const BrandContext = createContext<BrandContextValue>({ appearance: initial, refresh: async () => {}, setAppearance: () => {} });
 const titles: Record<string, string> = { "/": "管理者ログイン", "/admin": "管理ホーム", "/people": "利用者", "/presence": "在室一覧", "/attendance": "入退室履歴", "/history": "入退出履歴",
-  "/settings": "自分の設定", "/settings/devices": "QR受付端末", "/settings/administrators": "管理者", "/settings/appearance": "表示設定", "/reception": "QR受付", "/device": "QR受付の準備", "/invite": "管理者の登録", "/recover": "ログインの復旧" };
+  "/settings": "自分の設定", "/settings/devices": "QR受付端末", "/settings/administrators": "管理者", "/settings/appearance": "表示設定", "/settings/privacy": "保存と削除", "/settings/diagnostics": "稼働状況", "/reception": "QR受付", "/device": "QR受付の準備", "/invite": "管理者の登録", "/recover": "ログインの復旧" };
 
 export function BrandProvider({ children }: { children: ReactNode }) {
   const pathname = usePathname();
@@ -27,7 +27,8 @@ export function BrandProvider({ children }: { children: ReactNode }) {
     return () => { active = false; };
   }, [setAppearance]);
   useEffect(() => {
-    document.title = `${titles[pathname] ?? "管理画面"} | ${appearance.displayName}`;
+    const pageTitle = /^\/people\/[^/]+\/deletion$/.test(pathname) ? "個人情報の削除" : titles[pathname] ?? "管理画面";
+    document.title = `${pageTitle} | ${appearance.displayName}`;
     let icon = document.querySelector<HTMLLinkElement>('link[rel="icon"]');
     if (!icon) { icon = document.createElement("link"); icon.rel = "icon"; document.head.append(icon); }
     icon.href = appearance.faviconUrl;

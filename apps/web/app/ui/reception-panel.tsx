@@ -109,6 +109,9 @@ export function ReceptionPanel() {
   const pending = useRef<PendingRequest | null>(null);
   const inFlight = useRef(false);
   const active = useRef(true);
+  const resultHeading = useRef<HTMLHeadingElement>(null);
+  const cameraArea = useRef<HTMLDivElement>(null);
+  const feedback = useRef<HTMLDivElement>(null);
 
   const applyDevice = useCallback((value: DeviceApplicationResponse) => {
     if (!value.claimed || value.device.status !== "APPROVED") throw new Error("有効な受付端末の登録がありません。管理者に承認と有効期限を確認してください。");
@@ -132,10 +135,15 @@ export function ReceptionPanel() {
 
   useEffect(() => {
     if (!result) return;
+    resultHeading.current?.focus();
     // 表示名を受付画面に残し続けず、短時間で次の読み取り待ちへ戻す。
-    const timer = setTimeout(() => { setResult(null); setInstruction(""); }, result.outcome === "RECORDED" ? 3_500 : 5_000);
+    const timer = setTimeout(() => { setResult(null); setInstruction(""); requestAnimationFrame(() => cameraArea.current?.focus()); }, result.outcome === "RECORDED" ? 3_500 : 5_000);
     return () => { clearTimeout(timer); };
   }, [result]);
+
+  useEffect(() => {
+    if (recovery || issueError) feedback.current?.focus();
+  }, [recovery, issueError]);
 
   useEffect(() => {
     if (!recovery?.acceptUntil) return;
@@ -231,6 +239,7 @@ export function ReceptionPanel() {
   }
 
   const paused = working || Boolean(result) || Boolean(recovery) || Boolean(issueError) || discardOpen;
+  const resultScreen = Boolean(result) || Boolean(recovery) || Boolean(issueError);
   return <section className={mode === "OUT" ? "reception-out" : "reception-in"} aria-busy={loading || working}>
     <div className="reception-heading"><h1>QR受付</h1>
       <p className="reception-device">{device?.device.name ?? "承認済みの受付端末で利用します"}</p>
@@ -242,7 +251,7 @@ export function ReceptionPanel() {
       <div className="inline-actions"><button disabled={working} onClick={() => void checkDevice()}>登録の状態を再確認</button><Link className="text-link" href="/device">この端末を登録する</Link></div>
       <p className="field-help">管理者でログインしただけでは受付端末になりません。申請したブラウザで承認後の利用開始まで進めてください。</p>
     </div>}
-    {device && <fieldset className="reception-mode" disabled={working || Boolean(recovery)}>
+    {device && !resultScreen && <fieldset className="reception-mode" disabled={working}>
       <legend>受付モードを選ぶ</legend><div className="reception-mode-buttons">
         <button type="button" aria-pressed={mode === "IN"} onClick={() => { setMode("IN"); setInstruction(""); }}>入室</button>
         <button type="button" aria-pressed={mode === "OUT"} onClick={() => { setMode("OUT"); setInstruction(""); }}>退室</button>
@@ -250,11 +259,14 @@ export function ReceptionPanel() {
     </fieldset>}
     {working && <p className="notice" role="status">受付の応答を確認しています。完了するまでQRを新しく読み取らないでください。</p>}
     {instruction && <p className="notice" role="status">{instruction}</p>}
+    {resultScreen && <div ref={feedback} tabIndex={-1} className="reception-screen" role="region" aria-label="受付結果の画面"><p className="reception-screen-mode">{result ? result.mode === "IN" ? "入室" : "退室" : mode === "IN" ? "入室" : "退室"}の受付結果</p>
     {result && <div className={`reception-result${result.outcome === "RECORDED" ? "" : " rejected"}`} role="status" aria-live="polite">
-      <h2>{result.outcome === "RECORDED" ? result.mode === "IN" ? "入室を記録しました" : "退室を記録しました" : "受付できませんでした"}</h2>
+      <div className="reception-result-symbol" aria-hidden="true">{result.outcome === "RECORDED" ? "✓" : "!"}</div>
+      <h2 ref={resultHeading} tabIndex={-1}>{result.outcome === "RECORDED" ? result.mode === "IN" ? "入室を記録しました" : "退室を記録しました" : "受付できませんでした"}</h2>
       {result.person && <p className="reception-person">{result.person.displayName}</p>}
       {result.outcome === "RECORDED" ? <p className="reception-time">{resultTime(result)} <span className="field-help">（{result.timeZone}）</span></p> : <p>{result.message}</p>}
-      <p className="field-help">表示が消えたら次の方のQRをかざしてください。</p>
+      <p className="field-help">表示が消えたら次の方のQRをかざしてください。カメラを停止していなければ、そのまま続けられます。</p>
+      <button className="secondary" onClick={() => { setResult(null); requestAnimationFrame(() => cameraArea.current?.focus()); }}>次の読み取りへ</button>
     </div>}
     {recovery && <div className="reception-unknown" role="status">
       <h2>この受付の結果を確認してください</h2><p>{recovery.message}</p>
@@ -264,8 +276,10 @@ export function ReceptionPanel() {
         <button className="secondary" disabled={working} onClick={() => setDiscardOpen(true)}>管理者に確認して受付を再開</button>
       </div>
     </div>}
-    {issueError && <div className="notice error" role="alert"><p>{issueError}</p><p>この読み取りの記録は送信していません。</p><button className="secondary" disabled={working} onClick={() => { setIssueError(""); setInstruction("前のQRをいったんカメラから外してから読み取ってください。"); }}>読み取りを再開</button></div>}
-    {device && <QrCamera paused={paused} onRead={(value) => void readQr(value)} />}
+    {issueError && <div className="notice error" role="alert"><p>{issueError}</p><p>この読み取りの記録は送信していません。</p><button className="secondary" disabled={working} onClick={() => { setIssueError(""); setInstruction("前のQRをいったんカメラから外してから読み取ってください。"); requestAnimationFrame(() => cameraArea.current?.focus()); }}>読み取りを再開</button></div>}
+    </div>}
+    {/* 結果画面でもカメラ部品を残し、許可済みストリームを次の読取に引き継ぐ。 */}
+    {device && <div ref={cameraArea} tabIndex={-1} className="reception-capture" hidden={resultScreen}><QrCamera paused={paused} onRead={(value) => void readQr(value)} /></div>}
     <p className="reception-links"><Link href="/device">受付端末の登録状態を確認する</Link></p>
     <Modal open={discardOpen} title="結果を確認して受付を再開" description="未確認の受付結果を確認済みとして扱います。管理者が入退室の記録を確認してから再開してください。この操作では入退出の記録を追加・取り消しません。" onClose={() => setDiscardOpen(false)}>
       <p>記録の有無を確認せずに再読取すると、利用者に誤った案内をするおそれがあります。</p>
@@ -273,6 +287,7 @@ export function ReceptionPanel() {
         if (pending.current) removeRequestId(pending.current.requestId);
         pending.current = null; setRecovery(null); setIssueError(""); setDiscardOpen(false);
         setInstruction("前のQRをいったんカメラから外してから読み取ってください。");
+        requestAnimationFrame(() => cameraArea.current?.focus());
       }}>管理者が確認済み・再開する</button></div>
     </Modal>
   </section>;

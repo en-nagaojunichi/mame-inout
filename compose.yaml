@@ -16,7 +16,7 @@ services:
       POSTGRES_DB: mame
       POSTGRES_USER: mame_owner
       POSTGRES_PASSWORD_FILE: /run/secrets/db_admin_password
-    secrets: [db_admin_password, db_app_password, db_migrate_password]
+    secrets: [db_admin_password, db_app_password, db_migrate_password, db_backup_password, db_maintenance_password]
     volumes:
       - db_data:/var/lib/postgresql
       - ./infra/postgres/init.sh:/docker-entrypoint-initdb.d/01-roles.sh:ro
@@ -59,6 +59,22 @@ services:
       timeout: 3s
       retries: 20
     restart: unless-stopped
+  maintenance:
+    image: ${API_IMAGE:-mame-inout-api:dev}
+    pull_policy: never
+    profiles: [maintenance]
+    environment:
+      APP_ORIGIN: ${APP_ORIGIN:-http://localhost:8080}
+      DB_HOST: db
+      DB_NAME: mame
+      DB_USER: mame_maintenance
+      DB_PASSWORD_FILE: /run/secrets/db_maintenance_password
+    secrets: [db_maintenance_password]
+    command: [node, dist/privacy-maintenance.js]
+    networks: [database]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
   web:
     image: ${WEB_IMAGE:-mame-inout-web:dev}
     build: { context: ., dockerfile: infra/Dockerfile, target: web }
@@ -86,4 +102,6 @@ secrets:
   db_admin_password: { file: "${SECRETS_DIR:-./secrets}/db_admin_password" }
   db_app_password: { file: "${SECRETS_DIR:-./secrets}/db_app_password" }
   db_migrate_password: { file: "${SECRETS_DIR:-./secrets}/db_migrate_password" }
+  db_backup_password: { file: "${SECRETS_DIR:-./secrets}/db_backup_password" }
+  db_maintenance_password: { file: "${SECRETS_DIR:-./secrets}/db_maintenance_password" }
   auth_secret: { file: "${SECRETS_DIR:-./secrets}/auth_secret" }

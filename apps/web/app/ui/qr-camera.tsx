@@ -9,6 +9,7 @@ export function QrCamera({ paused, onRead }: { paused: boolean; onRead: (value: 
   const video = useRef<HTMLVideoElement>(null);
   const currentStream = useRef<MediaStream | null>(null);
   const read = useRef(onRead);
+  const readingPaused = useRef(paused);
   const lastCode = useRef<string | null>(null);
   const absentSince = useRef<number | null>(null);
   const [wanted, setWanted] = useState(false);
@@ -16,6 +17,7 @@ export function QrCamera({ paused, onRead }: { paused: boolean; onRead: (value: 
   const [message, setMessage] = useState("");
 
   useEffect(() => { read.current = onRead; }, [onRead]);
+  useEffect(() => { readingPaused.current = paused; }, [paused]);
 
   useEffect(() => {
     function pauseHiddenCamera() {
@@ -34,7 +36,7 @@ export function QrCamera({ paused, onRead }: { paused: boolean; onRead: (value: 
   }, []);
 
   useEffect(() => {
-    if (!wanted || paused) return;
+    if (!wanted) return;
     let disposed = false;
     let stream: MediaStream | null = null;
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -44,6 +46,8 @@ export function QrCamera({ paused, onRead }: { paused: boolean; onRead: (value: 
 
     function scan() {
       if (disposed || !element || !context) return;
+      // 結果表示中は解析だけを止め、カメラの再取得や同じQRの再受付を起こさない。
+      if (readingPaused.current) { timer = setTimeout(scan, 180); return; }
       if (element.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && element.videoWidth > 0 && element.videoHeight > 0) {
         // 映像は端末内だけで解析する。フレームは保存・送信せず、読取本文だけを受付処理へ渡す。
         let code: ReturnType<typeof jsQR>;
@@ -110,7 +114,7 @@ export function QrCamera({ paused, onRead }: { paused: boolean; onRead: (value: 
       if (element) { element.pause(); element.srcObject = null; }
       canvas.width = 0; canvas.height = 0;
     };
-  }, [wanted, paused]);
+  }, [wanted]);
 
   const start = () => {
     if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
@@ -136,6 +140,6 @@ export function QrCamera({ paused, onRead }: { paused: boolean; onRead: (value: 
       {wanted ? <button className="secondary" onClick={() => { setWanted(false); setState("paused"); setMessage(""); }}>カメラを停止</button>
         : <button disabled={paused} onClick={start}>{state === "denied" || state === "unavailable" ? "カメラを再試行" : "カメラを起動"}</button>}
     </div>
-    <p className="field-help">映像は端末内で読み取り、サーバーへ送りません。同じQRを続けて読む場合は、いったんカメラから外してください。</p>
+    <p className="field-help">受付の結果が出たあともカメラは起動したままです。画面を離れると停止します。映像は端末内で読み取り、サーバーへ送りません。同じQRを続けて読む場合は、いったんカメラから外してください。</p>
   </section>;
 }

@@ -179,6 +179,42 @@ model Appearance {
   updatedAt   DateTime @default(now()) @updatedAt @db.Timestamptz
 }
 
+// 台帳の世代は指示の確定と同じトランザクションで進め、外部保管の分岐を検知する。
+model PrivacyState {
+  id                      Int       @id @default(1)
+  deploymentId            String    @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  generation              Int       @default(0)
+  lastBackupAt            DateTime? @db.Timestamptz
+  backupExternalConfirmed Boolean   @default(false)
+}
+
+model RetentionPolicy {
+  id                     Int       @id @default(1)
+  days                   Int       @default(365)
+  version                Int       @default(1)
+  backupRetentionDays    Int       @default(30)
+  lastRunAt              DateTime? @db.Timestamptz
+  lastDeletedVisits      Int       @default(0)
+  lastDeletedAuditEvents Int       @default(0)
+}
+
+// 指示自体は追記専用。外部保管の失敗や完了は別表へ記録する。
+model DeletionInstruction {
+  operationId String            @id @db.Uuid
+  sequence    Int               @unique
+  personId    String            @unique @db.Uuid
+  requestedAt DateTime          @db.Timestamptz
+  progress    DeletionProgress?
+}
+
+model DeletionProgress {
+  operationId   String              @id @db.Uuid
+  completedAt   DateTime?           @db.Timestamptz
+  lastAttemptAt DateTime?           @db.Timestamptz
+  errorCode     String?             @db.VarChar(40)
+  instruction   DeletionInstruction @relation(fields: [operationId], references: [operationId], onDelete: Restrict)
+}
+
 model Person {
   id            String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   facilityId    Int                 @default(1)

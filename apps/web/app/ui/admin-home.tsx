@@ -28,10 +28,10 @@ export function AdminHome() {
       <li><Link href="/settings/devices"><span><strong>QR受付端末</strong><span>端末の申請を確認・承認する</span></span><span aria-hidden="true">→</span></Link></li>
       <li><Link href="/settings/appearance"><span><strong>表示設定</strong><span>システム名・アイコン・ファビコンを変更する</span></span><span aria-hidden="true">→</span></Link></li>
     </ul></section>
-    <details className="setup-details"><summary>はじめての受付準備</summary><ol className="setup-guide">
+    <section className="setup-details" aria-labelledby="setup-guide-title"><h2 id="setup-guide-title">はじめての受付準備</h2><p className="muted">3つの準備を順番に進めると、QRで受付できます。</p><ol className="setup-guide">
       <li><div><strong>利用者を登録してQRを渡す</strong><p>名前を登録し、QR画像を保存するか印刷します。</p><Link href="/people">利用者を登録・確認</Link></div></li>
       <li><div><strong>入口の端末を申請・承認する</strong><p>受付用のスマホで申請し、管理者が確認コードを照合します。</p><Link href="/settings/devices">端末の申請を確認</Link></div></li>
       <li><div><strong>承認したブラウザで受付を始める</strong><p>入室または退室を選び、利用者のQRを読み取ります。</p><Link href="/reception">このブラウザのQR受付を開く</Link></div></li>
-    </ol></details>
+    </ol></section>
   </section>;
 }

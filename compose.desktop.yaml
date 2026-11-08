@@ -3,7 +3,7 @@ services:
   prepare-secrets:
     image: node:24.22.2-bookworm-slim
     command: [node, /prepare.mjs]
-    secrets: [db_admin_password, db_app_password, db_migrate_password, auth_secret]
+    secrets: [db_admin_password, db_app_password, db_migrate_password, db_backup_password, db_maintenance_password, auth_secret]
     volumes:
       - ./scripts/prepare-desktop-secrets.mjs:/prepare.mjs:ro
       - desktop_secrets:/prepared
@@ -37,5 +37,13 @@ services:
         target: /run/secrets
         read_only: true
         volume: { subpath: api }
+  maintenance:
+    secrets: !reset []
+    volumes:
+      - type: volume
+        source: desktop_secrets
+        target: /run/secrets
+        read_only: true
+        volume: { subpath: maintenance }
 volumes:
   desktop_secrets:

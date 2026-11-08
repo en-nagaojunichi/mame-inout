@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import Link from "next/link";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import QRCode from "qrcode";
 import {
@@ -208,7 +209,7 @@ export function PeoplePanel() {
       {!loaded && !loading && <p>一覧を表示できませんでした。「一覧を更新」から再確認してください。</p>}
       <ul className="people-list">{people.items.map((person) => <li key={person.id}>
         <div className="person-summary"><h3>{person.displayName}<span className={`status-label ${person.status !== "ACTIVE" ? "status-neutral" : ""}`}>{statusLabels[person.status]}</span></h3>{person.phoneticName && <p className="item-meta">{person.phoneticName}</p>}<p className="item-meta">所属：{person.affiliation || "未設定"}<br />利用者コード：{person.code || "未設定"}</p></div>
-        {person.status !== "DELETED" && <div className="inline-actions"><button className="secondary" disabled={busy || loading} onClick={() => void open("edit", person)}>編集<span className="visually-hidden">：{person.displayName}</span></button>{person.status === "ACTIVE" && <button className="secondary" disabled={busy || loading} onClick={() => void open("issue", person)}>QRコード<span className="visually-hidden">：{person.displayName}</span></button>}<button className={person.status === "ACTIVE" ? "text-button danger-text" : "secondary"} disabled={busy || loading} onClick={() => void open("status", person)}>{person.status === "ACTIVE" ? "利用停止" : "利用再開"}<span className="visually-hidden">：{person.displayName}</span></button></div>}
+        {person.status !== "DELETED" && <div className="inline-actions"><button className="secondary" disabled={busy || loading} onClick={() => void open("edit", person)}>編集<span className="visually-hidden">：{person.displayName}</span></button>{person.status === "ACTIVE" && <button className="secondary" disabled={busy || loading} onClick={() => void open("issue", person)}>QRコード<span className="visually-hidden">：{person.displayName}</span></button>}<button className={person.status === "ACTIVE" ? "text-button danger-text" : "secondary"} disabled={busy || loading} onClick={() => void open("status", person)}>{person.status === "ACTIVE" ? "利用停止" : "利用再開"}<span className="visually-hidden">：{person.displayName}</span></button><Link className="text-button danger-text" href={`/people/${person.id}/deletion`}>個人情報を削除<span className="visually-hidden">：{person.displayName}</span></Link></div>}
       </li>)}</ul>
       {people.nextCursor && <div className="inline-actions"><button className="secondary" disabled={loading || busy} onClick={() => void load(query, true).catch((error: unknown) => { setNoticeError(true); setMessage(error instanceof Error ? error.message : "続きを読み込めませんでした。"); })}>続きを表示</button></div>}
     </section>

@@ -4,6 +4,7 @@ export * from "./attendance.js";
 export * from "./identity.js";
 export * from "./devices.js";
 export * from "./people.js";
+export * from "./privacy.js";
 
 // DBモデルや秘密値を公開せず、画面とAPIで入力と応答だけを共有する。
 export const setupInputSchema = z.object({

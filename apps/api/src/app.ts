@@ -14,6 +14,7 @@ import { createIdentityRoutes } from "./identity-routes.js";
 import { createDeviceRoutes } from "./device-routes.js";
 import { createPeopleRoutes } from "./people-routes.js";
 import { createAppearanceRoutes } from "./appearance-routes.js";
+import { createPrivacyRoutes } from "./privacy-routes.js";
 import { registrationCookieName } from "./identity.js";
 
 const error = (code: string, message: string) => ({ code, message });
@@ -112,6 +113,7 @@ export function createApp(db: Database, config: Config) {
   app.route("/", createDeviceRoutes(db, config, access));
   app.route("/", createPeopleRoutes(db, access));
   app.route("/", createAppearanceRoutes(db, access));
+  app.route("/", createPrivacyRoutes(db, config, access));
   app.notFound((c) => c.json(error("NOT_FOUND", "この操作は利用できません。"), 404));
   return app;
 }

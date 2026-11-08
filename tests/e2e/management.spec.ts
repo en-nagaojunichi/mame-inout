@@ -250,14 +250,17 @@ test("受付端末の申請と承認確認で、資格受取に失敗した時�
   let applied = false;
   let approved = false;
   let failedClaim = false;
-  await page.route("**/api/devices/current", (route) => route.fulfill({ status: 401, json: { code: "DEVICE_UNAUTHENTICATED" } }));
+  let credentialSaved = false;
+  await page.route("**/api/devices/current", (route) => credentialSaved
+    ? route.fulfill({ json: { device: { ...device, status: "APPROVED", expiresAt: "2026-12-07T00:00:00.000Z" }, claimed: true } })
+    : route.fulfill({ status: 401, json: { code: "DEVICE_UNAUTHENTICATED" } }));
   await page.route("**/api/devices/application", (route) => applied
     ? route.fulfill({ json: { device: { ...device, status: approved ? "APPROVED" : "PENDING", expiresAt: approved ? "2026-12-07T00:00:00.000Z" : null }, claimed: false } })
     : route.fulfill({ status: 401, json: { code: "APPLICATION_DENIED" } }));
   await page.route("**/api/devices/apply", (route) => { applied = true; return route.fulfill({ status: 201, json: { device, claimed: false } }); });
   await page.route("**/api/devices/claim", (route) => {
     if (!failedClaim) { failedClaim = true; return route.fulfill({ status: 503, json: { message: "通信できませんでした。もう一度お試しください。" } }); }
-    return route.fulfill({ json: { ok: true, expiresAt: "2026-12-07T00:00:00.000Z" } });
+    credentialSaved = true; return route.fulfill({ json: { ok: true, expiresAt: "2026-12-07T00:00:00.000Z" } });
   });
   await page.goto("/device");
   await expect(page.getByRole("heading", { name: "QR受付に使う端末を登録", exact: true })).toBeVisible();
@@ -274,6 +277,39 @@ test("受付端末の申請と承認確認で、資格受取に失敗した時�
   await page.getByRole("button", { name: "このブラウザで利用を開始" }).click();
   await expect(page.getByText("このブラウザで登録済みです", { exact: true })).toBeVisible();
   expect(await page.evaluate(() => ({ local: localStorage.length, session: sessionStorage.length }))).toEqual({ local: 0, session: 0 });
+});
+
+test("申請の受取済みだけでは登録成功とせず、同じ資格を保存し直して現在の登録を照合する", async ({ page }) => {
+  let credentialSaved = false;
+  let claims = 0;
+  const approvedDevice = { ...device, status: "APPROVED", expiresAt: "2099-12-07T00:00:00.000Z" };
+  await page.route("**/api/devices/current", (route) => credentialSaved
+    ? route.fulfill({ json: { device: approvedDevice, claimed: true } })
+    : route.fulfill({ status: 401, json: { code: "DEVICE_UNAUTHENTICATED" } }));
+  await page.route("**/api/devices/application", (route) => route.fulfill({ json: { device: approvedDevice, claimed: true } }));
+  await page.route("**/api/devices/claim", (route) => { claims++; credentialSaved = claims >= 2; return route.fulfill({ json: { ok: true, expiresAt: approvedDevice.expiresAt } }); });
+  await page.goto("/device");
+  await expect(page.getByText(/同じ登録を受け取り直してください/)).toBeVisible();
+  await expect(page.getByText("このブラウザで登録済みです", { exact: true })).not.toBeVisible();
+  const claim = page.getByRole("button", { name: "このブラウザで利用を開始", exact: true });
+  await claim.click();
+  await expect(page.getByRole("link", { name: "QR受付を開く", exact: true })).not.toBeVisible();
+  await claim.click();
+  await expect(page.getByText("このブラウザで登録済みです", { exact: true })).toBeVisible();
+  await page.getByRole("link", { name: "QR受付を開く", exact: true }).click();
+  await expect(page.getByRole("button", { name: "カメラを起動", exact: true })).toBeVisible();
+  expect(claims).toBe(2);
+});
+
+test("端末の状態を通信失敗で取得できない場合、新規申請を促さず登録状態の再確認を案内する", async ({ page }) => {
+  let failed = true;
+  await page.route("**/api/devices/current", (route) => failed ? route.abort("failed") : route.fulfill({ json: { device: { ...device, status: "APPROVED", expiresAt: "2099-12-07T00:00:00.000Z" }, claimed: true } }));
+  await page.goto("/device");
+  await expect(page.getByRole("heading", { name: "登録の状態を確認できません", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "管理者へ承認を申請", exact: true })).toHaveCount(0);
+  failed = false;
+  await page.getByRole("button", { name: "登録の状態を再確認", exact: true }).click();
+  await expect(page.getByText("このブラウザで登録済みです", { exact: true })).toBeVisible();
 });
 
 test("招待・復旧の入力エラーではコードをURLや永続ストレージへ移さず、再試行できる", async ({ page }) => {

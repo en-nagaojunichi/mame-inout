@@ -6,7 +6,7 @@ const settingsSchema = z.object({
   DB_HOST: z.string().min(1),
   DB_PORT: z.coerce.number().int().min(1).max(65535).default(5432),
   DB_NAME: z.string().regex(/^[a-z][a-z0-9_]*$/).default("mame"),
-  DB_USER: z.enum(["mame_app", "mame_migrate"]),
+  DB_USER: z.enum(["mame_app", "mame_migrate", "mame_maintenance"]),
   DB_PASSWORD_FILE: z.string().min(1),
   AUTH_SECRET_FILE: z.string().min(1).optional(),
   PORT: z.coerce.number().int().default(3001),
@@ -26,7 +26,7 @@ export function readSecret(path: string): string {
   }
 }
 
-export function loadConfig(env: NodeJS.ProcessEnv = process.env, migration = false) {
+function loadForRole(env: NodeJS.ProcessEnv, role: "mame_app" | "mame_migrate" | "mame_maintenance") {
   const parsed = settingsSchema.safeParse(env);
   if (!parsed.success) throw new Error("必要な設定が不足しているか、形式が不正です。");
   const values = parsed.data;
@@ -35,13 +35,20 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, migration = fal
       (origin.protocol !== "https:" && !(origin.protocol === "http:" && origin.hostname === "localhost"))) {
     throw new Error("公開URLはHTTPSのOriginを指定してください。開発用localhostだけHTTPを利用できます。");
   }
-  if (values.DB_USER !== (migration ? "mame_migrate" : "mame_app")) throw new Error("用途に合うDBロールが必要です。");
-  if (!migration && !values.AUTH_SECRET_FILE) throw new Error("認証用の秘密ファイルが必要です。");
+  if (values.DB_USER !== role) throw new Error("用途に合うDBロールが必要です。");
+  if (role === "mame_app" && !values.AUTH_SECRET_FILE) throw new Error("認証用の秘密ファイルが必要です。");
   return {
     origin: origin.origin, rpID: origin.hostname, secure: origin.protocol === "https:", port: values.PORT,
-    secret: migration ? "" : readSecret(values.AUTH_SECRET_FILE!),
+    secret: role === "mame_app" ? readSecret(values.AUTH_SECRET_FILE!) : "",
     database: { host: values.DB_HOST, port: values.DB_PORT, database: values.DB_NAME, user: values.DB_USER,
       password: readSecret(values.DB_PASSWORD_FILE), max: 10 },
   };
+}
+export function loadConfig(env: NodeJS.ProcessEnv = process.env, migration = false) {
+  return loadForRole(env, migration ? "mame_migrate" : "mame_app");
+}
+// 保持・削除の一回実行処理は認証秘密情報を必要とせず、専用資格だけで起動する。
+export function loadMaintenanceConfig(env: NodeJS.ProcessEnv = process.env) {
+  return loadForRole(env, "mame_maintenance");
 }
 export type Config = ReturnType<typeof loadConfig>;

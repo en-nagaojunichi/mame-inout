@@ -32,6 +32,12 @@ describe("表示画像の内容検証", () => {
     expect(() => validate(pngFixture({ compressed: deflateSync(Buffer.alloc(2_000_000)) }))).toThrow();
     expect(() => validate(pngFixture({ beforeData: [pngChunk("tEXt", Buffer.alloc(65_536))] }))).toThrow();
   });
+  it("圧縮データの後ろへ別のデータを埋め込んだPNGを保存しない", () => {
+    const compressed = deflateSync(Buffer.alloc(5));
+    for (const tail of [Buffer.from("<script>unexpected</script>"), deflateSync(Buffer.alloc(5))]) {
+      expect(() => validate(pngFixture({ compressed: Buffer.concat([compressed, tail]) }))).toThrow();
+    }
+  });
   it("正規でないbase64とデータURLを受け付けない", () => {
     const bytes = pngFixture();
     for (const text of [bytes.toString("base64") + "\n", `data:image/png;base64,${bytes.toString("base64")}`, "!!!!"]) expect(() => validateAppearancePng(text)).toThrow();

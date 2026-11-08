@@ -4,8 +4,10 @@ import { join } from "node:path";
 // NTFSのモード値を本番の検査から除外せず、開発時だけLinux側へ600で写す。
 const groups = {
   api: ["db_app_password", "auth_secret"],
+  tests: ["db_app_password", "auth_secret", "db_maintenance_password"],
   migrate: ["db_migrate_password"],
-  db: ["db_admin_password", "db_app_password", "db_migrate_password"],
+  maintenance: ["db_maintenance_password"],
+  db: ["db_admin_password", "db_app_password", "db_migrate_password", "db_backup_password", "db_maintenance_password"],
 };
 try {
   for (const [service, names] of Object.entries(groups)) {

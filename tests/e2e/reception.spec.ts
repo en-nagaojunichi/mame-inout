@@ -142,7 +142,8 @@ test("送信失敗後は同じ要求の結果を確認し、未完了なら同�
   await expect(page.getByRole("heading", { name: "この受付の結果を確認してください", exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "退室を記録しました", exact: true })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "同じ内容を再送", exact: true })).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "入室", exact: true })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "入室", exact: true })).toHaveCount(0);
+  await expect(page.locator(".reception-capture")).not.toBeVisible();
   expect(await storageSummary(page)).toEqual({ onlyRequestId: true, localStorageEmpty: true });
   await page.getByRole("button", { name: "この受付の結果を確認", exact: true }).click();
   await expect(page.getByRole("button", { name: "同じ内容を再送", exact: true })).toBeVisible();
@@ -182,7 +183,7 @@ test("再読込では要求IDだけを復元し、失われたQRを再送せず�
   await expect(page.getByRole("heading", { name: "この受付の結果を確認してください", exact: true })).toBeVisible();
   await page.reload();
   await expect(page.getByRole("heading", { name: "この受付の結果を確認してください", exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: "カメラを起動", exact: true })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "カメラを起動", exact: true })).toHaveCount(0);
   await page.getByRole("button", { name: "この受付の結果を確認", exact: true }).click();
   await expect(page.getByText(/読み取ったQRは保存していないため、再読込後は再送できません/)).toBeVisible();
   await expect(page.getByRole("button", { name: "同じ内容を再送", exact: true })).toHaveCount(0);
@@ -208,6 +209,7 @@ test("すでに入室中という業務拒否は成功と区別し、受付モ�
   await expect(page.getByRole("heading", { name: "受付できませんでした", exact: true })).toBeVisible();
   await expect(page.getByText("すでに入室中です。退室する場合は退室モードに切り替えてください。", { exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "入室を記録しました", exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "次の読み取りへ", exact: true }).click();
   await expect(page.getByRole("button", { name: "入室", exact: true })).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByRole("button", { name: "退室", exact: true })).toHaveAttribute("aria-pressed", "false");
   expect({ records: calls.records, tickets: calls.tickets }).toEqual({ records: 1, tickets: 1 });
@@ -247,14 +249,42 @@ test("成功表示が消えて読み取りに戻っても、同じQRをかざし
   await mockDevice(page);
   const frame = await fixedFrame();
   let frames = 0;
-  await fakeCamera(page, async () => { frames++; return frame; });
+  const camera = await fakeCamera(page, async () => { frames++; return frame; });
   const calls = await mockRequests(page);
   await startCamera(page);
   const success = page.getByRole("heading", { name: "入室を記録しました", exact: true });
   await expect(success).toBeVisible();
+  await expect(page.locator(".reception-capture")).not.toBeVisible();
+  expect((await camera()).opened).toBe(1);
   await expect(success).not.toBeVisible();
   // 再開後も複数フレームを実際に流して、単に応答待ちだっただけの成功にしない。
   const before = frames;
   await expect.poll(() => frames).toBeGreaterThan(before + 16);
+  expect((await camera()).opened).toBe(1);
   expect({ records: calls.records, tickets: calls.tickets, correctPayload: calls.correctPayload }).toEqual({ records: 1, tickets: 1, correctPayload: true });
+});
+
+test("受付結果の表示でカメラを再取得せず、背景へ移ったときは停止し自動再開しない", async ({ page }) => {
+  await mockDevice(page);
+  const frame = await fixedFrame();
+  const camera = await fakeCamera(page, async () => frame);
+  await mockRequests(page);
+  await startCamera(page);
+  await expect(page.getByRole("heading", { name: "入室を記録しました", exact: true })).toBeVisible();
+  const stream = await page.locator("video").evaluateHandle((element) => (element as HTMLVideoElement).srcObject as MediaStream);
+  expect(await stream.evaluate((value) => value.getTracks().every((track) => track.readyState === "live"))).toBe(true);
+  await page.getByRole("button", { name: "次の読み取りへ", exact: true }).click();
+  expect((await camera()).opened).toBe(1);
+  await page.evaluate(() => {
+    Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "hidden" });
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  await expect.poll(() => stream.evaluate((value) => value.getTracks().every((track) => track.readyState === "ended"))).toBe(true);
+  await page.evaluate(() => {
+    Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "visible" });
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  await expect(page.getByRole("button", { name: "カメラを起動", exact: true })).toBeVisible();
+  expect((await camera()).opened).toBe(1);
+  await stream.dispose();
 });

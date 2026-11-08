@@ -270,6 +270,10 @@ export async function correctAttendanceVisit(db: Database, admin: AdminActor, in
     if (!candidate) throw new AttendanceError("VISIT_NOT_FOUND", 404, "対象の在室記録が見つかりません。");
     const person = await lockPerson(tx, candidate.personId);
     await lockAdmin(tx, admin);
+    const deletion = await tx.deletionInstruction.findUnique({ where: { personId: person.id }, include: { progress: true } });
+    if (deletion && !deletion.progress?.completedAt) {
+      throw new AttendanceError("PERSON_UNAVAILABLE", 409, "個人情報の削除が処理待ちの利用者の記録は変更できません。");
+    }
     const visit = await tx.attendanceVisit.findUnique({ where: { id: candidate.id } });
     if (!visit) throw new AttendanceError("VISIT_NOT_FOUND", 404, "対象の在室記録が見つかりません。");
     if (visit.personId !== person.id) throw new AttendanceError("VERSION_CONFLICT", 409, "記録の対象が更新されています。最新の状態を確認してください。");
@@ -285,7 +289,9 @@ export async function correctAttendanceVisit(db: Database, admin: AdminActor, in
     const updated = await tx.attendanceVisit.update({ where: { id: visit.id }, data: { enteredAt, exitedAt,
       canceledAt: value.cancel ? (visit.canceledAt ?? now) : null, version: { increment: 1 } } });
     const after = visitDto(updated);
-    await tx.attendanceRevision.create({ data: { visitId: visit.id, actorUserId: admin.userId, reason: value.reason, before: json(visitDto(visit)), after: json(after) } });
+    // 復元で戻った未退室も管理者が確認して閉じられるようにする。削除済みの自由記載は再収集しない。
+    const revisionReason = person.status === "DELETED" ? "削除済み利用者の記録を確認して訂正" : value.reason;
+    await tx.attendanceRevision.create({ data: { visitId: visit.id, actorUserId: admin.userId, reason: revisionReason, before: json(visitDto(visit)), after: json(after) } });
     await tx.auditEvent.create({ data: { action: value.cancel ? "VISIT_CANCELED" : "VISIT_CORRECTED", actorType: "ADMIN", actorUserId: admin.userId,
       personId: person.id, visitId: visit.id, details: { previousVersion: visit.version, version: updated.version } } });
     return after;

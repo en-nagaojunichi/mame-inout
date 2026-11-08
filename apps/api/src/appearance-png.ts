@@ -57,7 +57,12 @@ export function validateAppearancePng(base64: string): Buffer {
     }
     if (!ended) throw invalid();
     const stride = width * channels + 1, expected = stride * height;
-    const pixels = inflateSync(Buffer.concat(compressed), { maxOutputLength: expected + 1 });
+    const packed = Buffer.concat(compressed);
+    // Nodeのinfo有効時の戻り値は型定義のBufferと異なるため、この呼出しにだけ形を限定する。
+    const unpacked = inflateSync(packed, { maxOutputLength: expected + 1, info: true }) as unknown as { buffer: Buffer; engine: { bytesWritten: number } };
+    // PNGの圧縮領域に別のファイルや余剰データを隠して保存できないよう、全入力の消費も確認する。
+    if (unpacked.engine.bytesWritten !== packed.length) throw invalid();
+    const pixels = unpacked.buffer;
     if (pixels.length !== expected) throw invalid();
     for (let row = 0; row < height; row++) if (pixels[row * stride]! > 4) throw invalid();
     return Buffer.concat(kept);

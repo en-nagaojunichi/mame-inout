@@ -30,6 +30,8 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - run: npm run generate && npm run build -w @mame/contracts
       - run: npm run typecheck && npm run lint && npm test && npm run build
+      - name: 保管・復元の失敗と再実行を確認
+        run: python3 -B tests/operations_test.py
       - name: 使い捨てDBとサービス別の秘密を準備
         run: |
           npm run dev:setup
@@ -45,7 +47,8 @@ jobs:
           umask 077
           docker compose -p mame-inout-test exec -T api cat /tmp/e2e-setup-code > secrets/e2e-setup-code
           npx playwright install --with-deps chromium
-      - run: npm run test:e2e
+      - name: 実認証・受付・管理画面を工程別に確認
+        run: npm run test:e2e
       - name: テスト用コンテナの停止
         if: always()
         # このジョブだけの使い捨てプロジェクトに限定する。

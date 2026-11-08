@@ -5,12 +5,17 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 import { adminResponseSchema, type AdminResponse } from "@mame/contracts";
 import { api, authClient } from "./client-api";
+import { Brand } from "./brand";
+import "./management.css";
 
 const navigation = [
   { href: "/admin", label: "管理ホーム" },
+  { href: "/presence", label: "在室一覧" },
+  { href: "/attendance", label: "入退室履歴" },
   { href: "/people", label: "利用者" },
   { href: "/settings/devices", label: "QR受付端末" },
   { href: "/settings/administrators", label: "管理者" },
+  { href: "/settings/appearance", label: "表示設定" },
   { href: "/settings", label: "自分の設定" },
 ];
 
@@ -46,7 +51,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
   return <div className="admin-app">
     <a className="skip-link" href="#main">本文へ移動</a>
     <header className="admin-header">
-      <Link href="/admin" className="brand brand-link"><span className="brand-mark" aria-hidden="true" />MameInOut</Link>
+      <Link href="/admin" className="brand-link"><Brand /></Link>
       {admin && <div className="admin-account"><Link href="/settings">{admin.user.name}<span className="visually-hidden">さんの設定</span></Link><button className="secondary small-button" disabled={busy} onClick={() => void signOut()}>{busy ? "ログアウト中…" : "ログアウト"}</button></div>}
     </header>
     <div className="admin-layout">

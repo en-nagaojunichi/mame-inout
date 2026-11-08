@@ -10,6 +10,7 @@ import {
 import type { z } from "zod";
 import { api, ApiFailure, authClient, requirePasskey } from "./client-api";
 import { Modal } from "./modal";
+import { Brand } from "./brand";
 
 type People = z.infer<typeof peopleResponseSchema>;
 type PersonRow = People["items"][number];
@@ -213,7 +214,7 @@ export function PeoplePanel() {
     </section>
     <Modal open={action !== null} title={description.title} description={description.message} busy={busy} returnFocusRef={modalOpener} onClose={() => { if (!busy) setAction(null); }}>
       {action?.kind === "qr" ? <>
-        <div className="qr-print-area"><p className="qr-card-brand">MameInOut</p><h3>{action.person.displayName}</h3><Image unoptimized src={action.image} width={320} height={320} alt={`${action.person.displayName}さんの受付用QRコード`} className="issued-qr" /><p>受付でこのQRコードを見せてください。</p></div>
+        <div className="qr-print-area"><div className="qr-card-brand"><Brand /></div><h3>{action.person.displayName}</h3><Image unoptimized src={action.image} width={320} height={320} alt={`${action.person.displayName}さんの受付用QRコード`} className="issued-qr" /><p>受付でこのQRコードを見せてください。</p></div>
         <p className="field-help">この画面を閉じると、同じQRは再表示できません。画像の保存か印刷を済ませてください。コピーや貸し借りにより、他の人も利用できるため大切に保管してください。</p>
         <div className="inline-actions"><a className="button-link secondary" href={action.image} download="mame-inout-qr.png">QR画像を保存</a><button className="secondary" onClick={() => window.print()}>印刷</button><button data-modal-initial onClick={() => { setAction(null); setNoticeError(false); setMessage("QRを発行しました。必要な保存や印刷が済んでいることを確認してください。"); }}>保存したので閉じる</button></div>
       </> : <form onSubmit={(event) => void perform(event)}>

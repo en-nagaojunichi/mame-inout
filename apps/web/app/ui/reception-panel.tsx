@@ -172,7 +172,7 @@ export function ReceptionPanel() {
   async function readQr(value: string) {
     if (inFlight.current || pending.current || result || recovery || issueError || !device) return;
     if (!qrFormat.test(value)) {
-      setInstruction("MameInOutで発行した利用者のQRをかざしてください。読み取ったURLなどは開きません。");
+      setInstruction("このシステムで発行した利用者のQRをかざしてください。読み取ったURLなどは開きません。");
       return;
     }
     inFlight.current = true; setWorking(true); setInstruction(""); setIssueError("");

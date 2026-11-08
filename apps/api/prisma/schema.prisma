@@ -169,6 +169,16 @@ model Facility {
   receptionDevices ReceptionDevice[]
 }
 
+// 表示用の名称と画像だけを持ち、認証・施設識別子とは独立して変更する。
+model Appearance {
+  id          Int      @id @default(1)
+  displayName String   @default("入退出管理システム") @db.VarChar(64)
+  icon        Bytes?   @db.ByteA
+  favicon     Bytes?   @db.ByteA
+  version     Int      @default(1)
+  updatedAt   DateTime @default(now()) @updatedAt @db.Timestamptz
+}
+
 model Person {
   id            String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   facilityId    Int                 @default(1)

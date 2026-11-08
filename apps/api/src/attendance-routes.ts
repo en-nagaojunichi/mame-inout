@@ -1,18 +1,17 @@
 import { Hono } from "hono";
 import {
-  attendanceHistoryResponseSchema, attendanceQuerySchema, attendanceRecordInputSchema, attendanceResultSchema,
+  attendanceCsvQuerySchema, attendancePatchInputSchema, attendanceQuerySchema, attendanceRecordInputSchema, attendanceResultSchema,
   attendanceRequestResultSchema, attendanceTicketSchema, emptyRequestSchema,
-  facilityResponseSchema, pageQuerySchema, presenceResponseSchema,
+  facilityResponseSchema, manualVisitRequestInputSchema, pageQuerySchema, presenceQuerySchema, visitDtoSchema,
 } from "@mame/contracts";
 import { z } from "zod";
 import type { Database } from "./db.js";
 import type { Authorization } from "./authorization.js";
-import { AttendanceError, getAttendanceRequest, issueAttendanceRequest, recordAttendance } from "./attendance.js";
+import { AttendanceError, correctAttendanceVisit, createManualVisit, getAttendanceRequest, issueAttendanceRequest, recordAttendance } from "./attendance.js";
 import { allowAttempt } from "./rate-limit.js";
+import { exportAttendanceCsv, getAttendanceDetail, getDashboard, listAttendance, listPresence } from "./attendance-query.js";
 
 const invalidInput = () => new AttendanceError("INVALID_INPUT", 422, "入力内容を確認して、もう一度お試しください。");
-const visitPersonFields = { id: true, displayName: true, affiliation: true } as const;
-const page = <T extends { id: string }>(rows: T[], limit: number) => ({ items: rows.slice(0, limit), nextCursor: rows.length > limit ? rows[limit - 1]!.id : null });
 
 export function createAttendanceRoutes(db: Database, access: Authorization) {
   const routes = new Hono();
@@ -21,38 +20,50 @@ export function createAttendanceRoutes(db: Database, access: Authorization) {
     const facility = await db.facility.findUniqueOrThrow({ where: { id: 1 }, select: { id: true, name: true, timeZone: true } });
     return c.json(facilityResponseSchema.parse(facility));
   });
+  routes.get("/api/admin/dashboard", async (c) => c.json(await getDashboard(db, await access.admin(c))));
   routes.get("/api/admin/presence", async (c) => {
-    await access.admin(c);
-    const query = pageQuerySchema.safeParse(c.req.query());
+    const actor = await access.admin(c);
+    const query = presenceQuerySchema.safeParse(c.req.query());
     if (!query.success) throw invalidInput();
-    const { limit, cursor } = query.data;
-    const [facility, rows] = await Promise.all([
-      db.facility.findUniqueOrThrow({ where: { id: 1 }, select: { timeZone: true } }),
-      db.attendanceVisit.findMany({ where: { exitedAt: null, canceledAt: null, person: { facilityId: 1 }, ...(cursor ? { id: { gt: cursor } } : {}) }, include: { person: { select: visitPersonFields } }, orderBy: { id: "asc" }, take: limit + 1 }),
-    ]);
-    // 行の取得後に計測し、取得中の入室時刻が最終取得時刻より未来にならないようにする。
-    const clock = await db.$queryRaw<Array<{ now: Date }>>`SELECT clock_timestamp() AS now`;
-    const asOf = clock[0]!.now;
-    const result = page(rows, limit);
-    return c.json(presenceResponseSchema.parse({ label: "記録上の在室者", timeZone: facility.timeZone, asOf: asOf.toISOString(), nextCursor: result.nextCursor,
-      items: result.items.map((visit) => ({ id: visit.id, person: visit.person, enteredAt: visit.enteredAt.toISOString(), version: visit.version,
-        elapsedSeconds: Math.max(0, Math.floor((asOf.getTime() - visit.enteredAt.getTime()) / 1000)),
-        // 長時間・日跨ぎは要確認表示だけにし、時刻や在室状態を勝手に確定しない。
-        needsReview: asOf.getTime() - visit.enteredAt.getTime() >= 12 * 60 * 60 * 1000 })) }));
+    return c.json(await listPresence(db, actor, query.data));
   });
   routes.get("/api/admin/attendance", async (c) => {
-    await access.admin(c);
+    const actor = await access.admin(c);
     const query = attendanceQuerySchema.safeParse(c.req.query());
     if (!query.success) throw invalidInput();
-    const { limit, cursor, personId } = query.data;
-    const [facility, rows] = await Promise.all([
-      db.facility.findUniqueOrThrow({ where: { id: 1 }, select: { timeZone: true } }),
-      db.attendanceVisit.findMany({ where: { person: { facilityId: 1 }, ...(personId ? { personId } : {}), ...(cursor ? { id: { gt: cursor } } : {}) }, include: { person: { select: visitPersonFields } }, orderBy: { id: "asc" }, take: limit + 1 }),
-    ]);
-    const result = page(rows, limit);
-    return c.json(attendanceHistoryResponseSchema.parse({ timeZone: facility.timeZone, nextCursor: result.nextCursor,
-      items: result.items.map((visit) => ({ id: visit.id, person: visit.person, enteredAt: visit.enteredAt.toISOString(), exitedAt: visit.exitedAt?.toISOString() ?? null,
-        canceledAt: visit.canceledAt?.toISOString() ?? null, version: visit.version, source: visit.source })) }));
+    return c.json(await listAttendance(db, actor, query.data));
+  });
+  routes.post("/api/admin/attendance", async (c) => {
+    const actor = await access.recentAdmin(c);
+    const input = manualVisitRequestInputSchema.safeParse(await c.req.json().catch(() => null));
+    if (!input.success) throw invalidInput();
+    return c.json(visitDtoSchema.parse(await createManualVisit(db, actor, input.data)), 201);
+  });
+  routes.get("/api/admin/attendance.csv", async (c) => {
+    const actor = await access.recentAdmin(c);
+    const query = attendanceCsvQuerySchema.safeParse(c.req.query());
+    if (!query.success) throw invalidInput();
+    if (!await allowAttempt(db, "attendance-csv", actor.userId, 10, 60)) {
+      c.header("Retry-After", "60");
+      return c.json({ code: "RATE_LIMITED", message: "CSVの出力が続いています。1分ほど待ってからお試しください。" }, 429);
+    }
+    c.header("Content-Type", "text/csv; charset=utf-8");
+    c.header("Content-Disposition", 'attachment; filename="attendance.csv"');
+    return c.body(await exportAttendanceCsv(db, actor, query.data));
+  });
+  routes.get("/api/admin/attendance/:id", async (c) => {
+    const actor = await access.admin(c);
+    const id = z.uuid().safeParse(c.req.param("id"));
+    const query = pageQuerySchema.safeParse(c.req.query());
+    if (!id.success || !query.success) throw invalidInput();
+    return c.json(await getAttendanceDetail(db, actor, id.data, query.data));
+  });
+  routes.patch("/api/admin/attendance/:id", async (c) => {
+    const actor = await access.recentAdmin(c);
+    const id = z.uuid().safeParse(c.req.param("id"));
+    const input = attendancePatchInputSchema.safeParse(await c.req.json().catch(() => null));
+    if (!id.success || !input.success) throw invalidInput();
+    return c.json(visitDtoSchema.parse(await correctAttendanceVisit(db, actor, { ...input.data, visitId: id.data })));
   });
   routes.use("/api/reception/*", async (c, next) => {
     const actor = await access.reception(c);

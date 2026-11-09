@@ -2,6 +2,7 @@ import { expect, test, type Browser, type BrowserContext } from "@playwright/tes
 import QRCode from "qrcode";
 import { qrIssueResponseSchema } from "@mame/contracts";
 import { fakeCamera } from "./fake-camera";
+import { findDeviceApproval } from "./device-approval";
 
 // 認証済み管理者と独立した受付ブラウザで、実API・DB・QRデコーダを通して検査する。
 // パスキーは仮想認証器、映像は架空カメラであり、スマホ実機の確認とは区別する。
@@ -66,14 +67,7 @@ export async function runPeopleReceptionFlow(admin: BrowserContext, browser: Bro
     await receiver.getByRole("button", { name: "管理者へ承認を申請", exact: true }).click();
     await expect(receiver.getByText("承認を待っています", { exact: true })).toBeVisible();
     await page.goto("/settings/devices");
-    const approvalButton = page.locator(".item-list > li").filter({ hasText: deviceName }).getByRole("button", { name: /^承認/ });
-    // 既存の結合試験fixtureが複数ページある場合も、公開UIのページングで申請を探す。
-    for (let index = 0; index < 20 && !await approvalButton.count(); index++) {
-      const more = page.getByRole("button", { name: "続きを表示", exact: true });
-      if (!await more.count()) break;
-      const loaded = page.waitForResponse(response => response.url().includes("/api/admin/devices?"));
-      await more.click(); await loaded;
-    }
+    const approvalButton = await findDeviceApproval(page, deviceName);
     await approvalButton.click();
     const approval = page.getByRole("dialog", { name: "受付端末を承認", exact: true });
     await approval.getByRole("button", { name: "承認", exact: true }).click();
